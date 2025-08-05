@@ -404,20 +404,18 @@ with st.sidebar:
         st.session_state.file_uploader_key += 1
         st.session_state.active_session_id = None
         st.rerun()
-    with st.sidebar:
-    # ... existing code for file upload ...
+
     st.header("2. View Options")
     envelope_view = st.checkbox("Enable Envelope View", value=True)
     vertical_offset = st.slider("Vertical Offset", 0.0, 5.0, 1.0, 0.1)
-    
-    # --- ADD THIS SLIDER ---
+
     st.markdown("---")
     st.subheader("AI Model Tuning")
     contamination_level = st.slider(
         "Anomaly Detection Sensitivity", 
         min_value=0.01, 
         max_value=0.20, 
-        value=0.05,  # A reasonable starting default
+        value=0.05,
         step=0.01,
         help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
     )
