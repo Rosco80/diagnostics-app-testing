@@ -61,28 +61,31 @@ def init_db():
 # --- Helper Functions ---
 def run_anomaly_detection(df, curve_names):
     """
-    Applies Isolation Forest to detect anomalies in the specified curves.
+    Applies Isolation Forest to detect anomalies and calculate their scores.
 
     Args:
         df (pd.DataFrame): The input dataframe containing curve data.
         curve_names (list): A list of column names to analyze for anomalies.
 
     Returns:
-        pd.DataFrame: The original dataframe with added '_anom' columns.
+        pd.DataFrame: The original dataframe with added '_anom' and '_anom_score' columns.
     """
     for curve in curve_names:
         if curve in df.columns:
-            # Prepare data for the model (it expects a 2D array)
             data = df[[curve]].values
-
-            # Instantiate and fit the model
-            # contamination='auto' is a good starting point. random_state ensures reproducibility.
             model = IsolationForest(contamination='auto', random_state=42)
+            
+            # Fit the model and get binary predictions (-1 for anomalies)
             predictions = model.fit_predict(data)
-
-            # The model returns -1 for anomalies and 1 for inliers.
-            # We convert this to a boolean series for consistency with the existing logic.
             df[f'{curve}_anom'] = predictions == -1
+
+            # Get the raw anomaly scores. Lower scores are more anomalous.
+            anomaly_scores = model.score_samples(data)
+            
+            # We invert the scores so that higher values indicate a more severe anomaly.
+            # This is more intuitive for visualization and reporting.
+            df[f'{curve}_anom_score'] = -1 * anomaly_scores
+            
     return df
     
 def get_last_row_id(_client):
@@ -293,45 +296,58 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     return buffer
 
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids):
-    pressure_curve = cylinder_config.get('pressure_curve')
-    valve_curves = cylinder_config.get('valve_vibration_curves', [])
-    report_data = []
-
-    # --- START OF REPLACEMENT BLOCK ---
-
-    # 1. Collect all curves from the config that exist in the dataframe
-    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
-    if pressure_curve and pressure_curve in df.columns:
-        curves_to_analyze.append(pressure_curve)
-
-    # 2. Run our new AI-based anomaly detection function on all curves at once
-    df = run_anomaly_detection(df, curves_to_analyze)
-
-    # 3. Build the report_data list based on the new model's output
+    # ... [The code to collect curves and call run_anomaly_detection remains the same] ...
+    
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-
+    
+    # --- START OF MODIFIED REPORTING BLOCK ---
     if pressure_curve and pressure_curve in df.columns:
-        # The concept of a single 'threshold' is less meaningful with Isolation Forest.
-        # We will store 'null' or a model-based score later. For now, we use 0.0 to maintain DB schema.
         anomaly_count = df[f'{pressure_curve}_anom'].sum()
-        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": 0.0, "count": anomaly_count, "unit": "PSI"})
+        # Calculate the average score ONLY for the points that are anomalies
+        avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
+        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
         fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
 
     for vc in valve_curves:
         curve_name = vc['curve']
         if curve_name in df.columns:
             anomaly_count = df[f'{curve_name}_anom'].sum()
-            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": 0.0, "count": anomaly_count, "unit": "G"})
+            avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
+            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
+    # --- END OF MODIFIED REPORTING BLOCK ---
+    
+    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
+    current_offset = 0
 
-    # --- END OF REPLACEMENT BLOCK ---
+    for i, vc in enumerate(valve_curves):
+        # ... [The existing logic for plotting the vibration curves (envelope or line) remains the same] ...
+        
+        # --- ADD THIS NEW PLOTTING LOGIC INSIDE THE LOOP ---
+        curve_name = vc['curve']
+        if curve_name in df.columns:
+            anomalies_df = df[df[f'{curve_name}_anom']]
+            if not anomalies_df.empty:
+                vibration_data = anomalies_df[curve_name] + current_offset
+                fig.add_trace(go.Scatter(
+                    x=anomalies_df['Crank Angle'],
+                    y=vibration_data,
+                    mode='markers',
+                    name=f"{vc['name']} Anomalies",
+                    marker=dict(
+                        color=anomalies_df[f'{curve_name}_anom_score'], # Color by score
+                        colorscale='Reds', # Use a distinct colorscale
+                        showscale=True,
+                        colorbar=dict(title=f"{vc['name']} Score")
+                    )
+                ), secondary_y=True)
+        # --- END OF NEW PLOTTING LOGIC ---
+
+        # ... [the rest of the loop, including current_offset += vertical_offset, remains the same] ...
 
     # The rest of the function for plotting remains unchanged and will use the new `_anom` columns
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
     # ...the rest of the function continues from here...
-
-    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
-    current_offset = 0
 
     for i, vc in enumerate(valve_curves):
         curve_name, label_name = vc['curve'], vc['name']
