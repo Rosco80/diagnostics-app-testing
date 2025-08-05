@@ -587,10 +587,10 @@ if uploaded_files and len(uploaded_files) == 3:
                     # Regenerate plot with correct analysis_ids
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
                     all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(st.session_state.discovered_config.get("cylinders", [])))
-                        score, findings = generate_health_score_and_findings(report_data, all_details)
-                        display_diagnostic_summary(score, findings)
-                        st.markdown("---") # Add a separator
-                        # -------------------------------
+                    score, findings = generate_health_score_and_findings(report_data, all_details)
+                    display_diagnostic_summary(score, findings)
+                    st.markdown("---") # Add a separator
+                    # -------------------------------
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Display health report
