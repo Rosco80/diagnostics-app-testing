@@ -650,8 +650,8 @@ if uploaded_files and len(uploaded_files) == 3:
                     st.markdown("---") # Add a separator
                     # ------------------------------------
 
-                        if all_details:
-                            cols = st.columns(len(all_details) or 1)
+                    if all_details:
+                       cols = st.columns(len(all_details) or 1)
                             for i, detail in enumerate(all_details):
                                 with cols[i]:
                                     # ... (rest of the code for displaying the cards)
