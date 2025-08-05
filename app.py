@@ -628,50 +628,57 @@ if uploaded_files and len(uploaded_files) == 3:
                                         st.rerun()
 
                   
-                    # Export and Cylinder Details
-                    st.header("📄 Export Report")
-                    if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                        pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
-                        if pdf_buffer:
-                            st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
+                   # Export and Cylinder Details
+st.header("📄 Export Report")
+if st.button("🔄 Generate Report for this Cylinder", type="primary"):
+    pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+    if pdf_buffer:
+        st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
 
-                    st.markdown("---")
-                    # Look for this section towards the end of your script:
+st.markdown("---")
 
-                    st.header("🔧 All Cylinder Details")
-                    cylinders = st.session_state.discovered_config.get("cylinders", [])
-                        
-                    # This line creates the 'all_details' variable
-                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+st.header("🔧 All Cylinder Details")
+cylinders = st.session_state.discovered_config.get("cylinders", [])
 
-                    # --- PASTE THE 3-LINE BLOCK HERE ---
-                    score, findings = generate_health_score_and_findings(report_data, all_details)
-                    display_diagnostic_summary(score, findings)
-                    st.markdown("---") # Add a separator
-                    # ------------------------------------
+# This line creates the 'all_details' variable
+all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
 
-                    if all_details:
-                       cols = st.columns(len(all_details) or 1)
-                            for i, detail in enumerate(all_details):
-                                with cols[i]:
-                                    # ... (rest of the code for displaying the cards)
-                                st.markdown(f"""
-                                <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                                    <h5>{detail['name']}</h5>
-                                    <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                                    <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                                    <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                                    <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
-                                </div>
-                                """, unsafe_allow_html=True)
-            else:
-                st.error("Could not discover a valid machine configuration.")
-        # ... previous code for file processing ...
-    else:
-        st.error("Failed to process curve data.")
+# Generate and display the AI Diagnostic Summary
+score, findings = generate_health_score_and_findings(report_data, all_details)
+display_diagnostic_summary(score, findings)
+st.markdown("---")  # Add a separator
+
+if all_details:
+    cols = st.columns(len(all_details) or 1)
+    for i, detail in enumerate(all_details):
+        with cols[i]:
+            st.markdown(f"""
+            <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
+                <h5>{detail['name']}</h5>
+                <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+            </div>
+            """, unsafe_allow_html=True)
+else:
+    # This 'else' corresponds to 'if all_details:'
+    st.info("No cylinder details were found in the provided data.")
+
+# The following 'else' blocks likely correspond to the outer 'if' statements
+# that check for valid configuration, processed data, and uploaded files.
+
+# else for 'if st.session_state.discovered_config:'
+else:
+    st.error("Could not discover a valid machine configuration.")
+
+# else for 'if df is not None:'
+else:
+    st.error("Failed to process curve data.")
+
+# else for the main 'if uploaded_files:'
 else:
     st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
-
 
 # ===================================================================
 # --- THIS IS THE FULL BLOCK FOR THE UI INTEGRATION ---
