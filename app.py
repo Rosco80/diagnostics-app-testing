@@ -336,7 +336,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 marker=dict(
                     color=anomalies_df[f'{curve_name}_anom_score'],
                     colorscale='Reds',
-                    showscale=False # KEY CHANGE: Hide the color bars
+                    showscale=False # AMENDED: Hide the color bars
                 ),
                 hoverinfo='text',
                 text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
@@ -354,8 +354,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         
         current_offset += vertical_offset
     
+    # AMENDED: Set explicit height and clean up legend
     fig.update_layout(
-        height=700,
+        height=700, 
         title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}", 
         xaxis_title="Crank Angle (deg)", 
         template="ggplot2", 
@@ -429,7 +430,7 @@ if uploaded_files and len(uploaded_files) == 3:
             if not st.session_state.discovered_config:
                 st.session_state.discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
             
-            if st.session_state.discovered_config:
+            if st.session_state.discovered_.config:
                 rpm = extract_rpm(files_content['levels'])
                 machine_id = st.session_state.discovered_config.get('machine_id', 'N/A')
                 
@@ -461,18 +462,14 @@ if uploaded_files and len(uploaded_files) == 3:
                         
                         fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
                         
-                        # --- START OF FINAL LAYOUT ---
+                        # AMENDED LAYOUT
                         st.plotly_chart(fig, use_container_width=True)
                         
-                        # --- KEY CHANGE: Display Anomaly Summary Table ---
                         st.subheader("Anomaly Summary")
                         summary_df = pd.DataFrame(report_data)
-                        # Make the table more readable
                         summary_df.rename(columns={'name': 'Measurement', 'count': 'Anomalies Found', 'threshold': 'Avg. Anomaly Score'}, inplace=True)
-                        # Format the score
                         summary_df['Avg. Anomaly Score'] = summary_df['Avg. Anomaly Score'].apply(lambda x: f'{x:.3f}' if x > 0 else 'N/A')
                         st.dataframe(summary_df[['Measurement', 'Anomalies Found', 'Avg. Anomaly Score']], use_container_width=True, hide_index=True)
-
 
                         st.subheader("📋 Compressor Health Report")
                         cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
@@ -540,7 +537,6 @@ if uploaded_files and len(uploaded_files) == 3:
                                         <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
                                     </div>
                                     """, unsafe_allow_html=True)
-                        # --- END OF FINAL LAYOUT ---
             else:
                 st.info("Please select a cylinder to begin analysis.")
         else:
