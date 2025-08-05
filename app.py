@@ -61,13 +61,14 @@ def init_db():
 
 # --- Helper Functions ---
 
+import plotly.express as px
+
 def display_historical_analysis(db_client):
     """
     Queries the database for historical data and displays it as a trend chart.
     """
     st.subheader("Anomaly Count Trend Over Time")
 
-    # Query to get total anomalies per session, linked to machine_id
     query = """
         SELECT
             s.timestamp,
@@ -84,8 +85,11 @@ def display_historical_analysis(db_client):
             st.info("No historical analysis data found to display.")
             return
 
-        # Convert to DataFrame
-        df = pd.DataFrame(rs.rows, columns=[col.name for col in rs.cols])
+        # --- THIS IS THE CORRECTED LINE ---
+        # We manually provide the column names instead of reading them from the result object.
+        df = pd.DataFrame(rs.rows, columns=['timestamp', 'machine_id', 'total_anomalies'])
+        # ------------------------------------
+        
         df['timestamp'] = pd.to_datetime(df['timestamp'])
 
         if df.empty:
