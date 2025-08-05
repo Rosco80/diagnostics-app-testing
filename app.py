@@ -521,7 +521,7 @@ if uploaded_files and len(uploaded_files) == 3:
                 if selected_cylinder_config:
                     # Generate plot and initial data
                     _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
-                     st.write("DEBUG: Data to be saved:", temp_report_data)
+                    st.write("DEBUG: Data to be saved:", temp_report_data)
                     # Create or update analysis records in DB
                     analysis_ids = {}
                     for item in temp_report_data:
