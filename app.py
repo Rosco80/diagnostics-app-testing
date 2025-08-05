@@ -540,14 +540,20 @@ if discovered_config:
                                 st.rerun()
             
             st.header("📄 Export Report")
-            if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                # Ensure 'fig' from tab 1 is available
-                if 'fig' in locals():
-                    pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
-                    if pdf_buffer:
-                        st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
-                else:
-                    st.warning("Chart not generated. Please check the Diagnostic Chart tab.")
+if st.button("🔄 Generate Report for this Cylinder", type="primary"):
+    # We check if the 'fig' object from tab 1 was successfully created before trying to use it
+    if 'fig' in locals() and fig is not None:
+        pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+        if pdf_buffer:
+            st.download_button(
+                label="📥 Download PDF Report",
+                data=pdf_buffer,
+                file_name=f"report_{machine_id}_{selected_cylinder_name}.pdf",
+                mime="application/pdf"
+            )
+    else:
+        # If the fig object doesn't exist, show a warning.
+        st.warning("Chart has not been generated yet. Please view the 'Diagnostic Chart' tab first.")
         else:
             st.info("Select a cylinder from the sidebar to view its report and details.")
 
