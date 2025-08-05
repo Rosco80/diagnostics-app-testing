@@ -510,10 +510,14 @@ def display_diagnostic_summary(score, findings):
             
 # --- Main Application ---
 
+# --- Main Application ---
 db_client = init_db()
 
+# Initialize session state variables
 if 'active_session_id' not in st.session_state: st.session_state.active_session_id = None
 if 'file_uploader_key' not in st.session_state: st.session_state.file_uploader_key = 0
+if 'discovered_config' not in st.session_state: st.session_state.discovered_config = None # CORRECT INITIALIZATION
+if 'selected_cylinder_name' not in st.session_state: st.session_state.selected_cylinder_name = None
 
 st.title("⚙️ AI-Powered Machine Diagnostics Analyzer")
 st.markdown("Upload your machine's XML data files. The configuration will be discovered automatically.")
@@ -524,6 +528,8 @@ with st.sidebar:
     if st.button("Start New Analysis / Clear Files"):
         st.session_state.file_uploader_key += 1
         st.session_state.active_session_id = None
+        st.session_state.discovered_config = None
+        st.session_state.selected_cylinder_name = None
         st.rerun()
 
     st.header("2. View Options")
@@ -541,6 +547,15 @@ with st.sidebar:
         help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
     )
 
+    if st.session_state.discovered_config:
+        cylinders = st.session_state.discovered_config.get("cylinders", [])
+        cylinder_names = [c.get("cylinder_name") for c in cylinders]
+        if cylinder_names:
+            def on_cylinder_change():
+                st.session_state.active_session_id = None
+            
+            st.selectbox("Select Cylinder for Detailed View", cylinder_names, key='selected_cylinder_name', on_change=on_cylinder_change)
+
 if uploaded_files and len(uploaded_files) == 3:
     files_content = {}
     for f in uploaded_files:
@@ -551,7 +566,8 @@ if uploaded_files and len(uploaded_files) == 3:
     if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
         df, actual_curve_names = load_all_curves_data(files_content['curves'])
         if df is not None:
-            if not st.session_state.discovered_config:
+            # THIS IS THE CORRECTED LOGIC
+            if st.session_state.discovered_config is None:
                 st.session_state.discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
             
             if st.session_state.discovered_config:
@@ -636,7 +652,6 @@ if uploaded_files and len(uploaded_files) == 3:
 
                         st.markdown("---")
                         
-                        # --- AI SUMMARY AND CYLINDER DETAILS SECTION ---
                         cylinders = st.session_state.discovered_config.get("cylinders", [])
                         all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
                         
@@ -672,37 +687,32 @@ if uploaded_files and len(uploaded_files) == 3:
         st.warning("Please upload all three required XML files to begin.", icon="⚠️")
 else:
     st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
-# ===================================================================
-# --- THIS IS THE FULL BLOCK FOR THE UI INTEGRATION ---
 
+# --- HISTORICAL ANALYSIS SECTION ---
 st.markdown("---")
 st.header("📈 Historical Trend Analysis")
 display_historical_analysis(db_client)
 
-# ===================================================================
-
-
-# Display All Saved Labels at the bottom
+# --- SIDEBAR FOR SAVED LABELS ---
 with st.sidebar:
     st.header("3. View All Saved Labels")
     rs = db_client.execute("SELECT DISTINCT machine_id FROM sessions ORDER BY machine_id ASC")
-    #... rest of your script
     machine_id_options = [row[0] for row in rs.rows]
     selected_machine_id_filter = st.selectbox("Filter labels by Machine ID", options=["All"] + machine_id_options)
 
-st.header("📋 All Saved Labels")
-query = "SELECT s.timestamp, s.machine_id, a.cylinder_name, a.curve_name, l.label_text FROM labels l JOIN analyses a ON l.analysis_id = a.id JOIN sessions s ON a.session_id = s.id"
-params = []
-if selected_machine_id_filter != "All":
-    query += " WHERE s.machine_id = ?"
-    params.append(selected_machine_id_filter)
-query += " ORDER BY s.timestamp DESC"
-rs = db_client.execute(query, tuple(params))
-if rs.rows:
-    labels_df = pd.DataFrame(rs.rows, columns=['Timestamp', 'Machine ID', 'Cylinder', 'Curve', 'Label'])
-    st.dataframe(labels_df, use_container_width=True)
-    # Download buttons for labels
-    csv_data = labels_df.to_csv(index=False).encode('utf-8')
-    st.download_button("📊 Download Labels as CSV", csv_data, "anomaly_labels.csv", "text/csv")
-else:
-    st.info("📝 No labels found.")
+if selected_machine_id_filter:
+    st.header("📋 All Saved Labels")
+    query = "SELECT s.timestamp, s.machine_id, a.cylinder_name, a.curve_name, l.label_text FROM labels l JOIN analyses a ON l.analysis_id = a.id JOIN sessions s ON a.session_id = s.id"
+    params = []
+    if selected_machine_id_filter != "All":
+        query += " WHERE s.machine_id = ?"
+        params.append(selected_machine_id_filter)
+    query += " ORDER BY s.timestamp DESC"
+    rs = db_client.execute(query, tuple(params))
+    if rs.rows:
+        labels_df = pd.DataFrame(rs.rows, columns=['Timestamp', 'Machine ID', 'Cylinder', 'Curve', 'Label'])
+        st.dataframe(labels_df, use_container_width=True)
+        csv_data = labels_df.to_csv(index=False).encode('utf-8')
+        st.download_button("📊 Download Labels as CSV", csv_data, "anomaly_labels.csv", "text/csv")
+    else:
+        st.info("📝 No labels found for the selected filter.")
