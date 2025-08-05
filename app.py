@@ -391,7 +391,12 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         
         current_offset += vertical_offset
     
-    fig.update_layout(title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}", xaxis_title="Crank Angle (deg)", template="ggplot2", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+    fig.update_layout(
+        height=700,  # <-- This sets the height of the chart to 700 pixels
+        title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}",
+        xaxis_title="Crank Angle (deg)",
+        template="ggplot2",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
     fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
     
