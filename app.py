@@ -636,19 +636,19 @@ if uploaded_files and len(uploaded_files) == 3:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
 
                     st.markdown("---")
-                   # Look for this section towards the end of your script:
+                    # Look for this section towards the end of your script:
 
-                        st.header("🔧 All Cylinder Details")
-                        cylinders = st.session_state.discovered_config.get("cylinders", [])
+                    st.header("🔧 All Cylinder Details")
+                    cylinders = st.session_state.discovered_config.get("cylinders", [])
                         
-                        # This line creates the 'all_details' variable
-                        all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+                    # This line creates the 'all_details' variable
+                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
 
-                        # --- PASTE THE 3-LINE BLOCK HERE ---
-                        score, findings = generate_health_score_and_findings(report_data, all_details)
-                        display_diagnostic_summary(score, findings)
-                        st.markdown("---") # Add a separator
-                        # ------------------------------------
+                    # --- PASTE THE 3-LINE BLOCK HERE ---
+                    score, findings = generate_health_score_and_findings(report_data, all_details)
+                    display_diagnostic_summary(score, findings)
+                    st.markdown("---") # Add a separator
+                    # ------------------------------------
 
                         if all_details:
                             cols = st.columns(len(all_details) or 1)
