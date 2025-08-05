@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
 from sklearn.ensemble import IsolationForest # Add this with your other imports at the top of the file
+import plotly.express as px
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -59,6 +60,57 @@ def init_db():
         st.stop()
 
 # --- Helper Functions ---
+
+def display_historical_analysis(db_client):
+    """
+    Queries the database for historical data and displays it as a trend chart.
+    """
+    st.subheader("Anomaly Count Trend Over Time")
+
+    # Query to get total anomalies per session, linked to machine_id
+    query = """
+        SELECT
+            s.timestamp,
+            s.machine_id,
+            SUM(a.anomaly_count) as total_anomalies
+        FROM analyses a
+        JOIN sessions s ON a.session_id = s.id
+        GROUP BY s.id, s.timestamp, s.machine_id
+        ORDER BY s.timestamp ASC
+    """
+    try:
+        rs = db_client.execute(query)
+        if not rs.rows:
+            st.info("No historical analysis data found to display.")
+            return
+
+        # Convert to DataFrame
+        df = pd.DataFrame(rs.rows, columns=[col.name for col in rs.cols])
+        df['timestamp'] = pd.to_datetime(df['timestamp'])
+
+        if df.empty:
+            st.info("No historical analysis data found to display.")
+            return
+
+        # Create the plot
+        fig = px.line(
+            df,
+            x='timestamp',
+            y='total_anomalies',
+            color='machine_id',
+            markers=True,
+            title='Total Anomaly Count by Machine Over Time',
+            labels={
+                "timestamp": "Date of Analysis",
+                "total_anomalies": "Total Anomalies Found",
+                "machine_id": "Machine ID"
+            }
+        )
+        fig.update_layout(template="ggplot2")
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Failed to load historical data: {e}")
 # The function signature now accepts contamination_level
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
@@ -545,17 +597,28 @@ if uploaded_files and len(uploaded_files) == 3:
                                 """, unsafe_allow_html=True)
             else:
                 st.error("Could not discover a valid machine configuration.")
-        else:
-            st.error("Failed to process curve data.")
+        # ... previous code for file processing ...
     else:
-        st.warning("Please ensure all required XML files are uploaded.")
+        st.error("Failed to process curve data.")
 else:
-    st.info("Please upload all three required XML files to begin.")
+    st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
+
+
+# ===================================================================
+# --- THIS IS THE FULL BLOCK FOR THE UI INTEGRATION ---
+
+st.markdown("---")
+st.header("📈 Historical Trend Analysis")
+display_historical_analysis(db_client)
+
+# ===================================================================
+
 
 # Display All Saved Labels at the bottom
 with st.sidebar:
     st.header("3. View All Saved Labels")
     rs = db_client.execute("SELECT DISTINCT machine_id FROM sessions ORDER BY machine_id ASC")
+    #... rest of your script
     machine_id_options = [row[0] for row in rs.rows]
     selected_machine_id_filter = st.selectbox("Filter labels by Machine ID", options=["All"] + machine_id_options)
 
