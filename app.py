@@ -439,9 +439,77 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     
     return fig, report_data
     # --- END OF FULLY CORRECTED FUNCTION ---
-    # --- END OF CORRECTED FUNCTION ---
+def create_health_score_gauge(score):
+    """Creates a Plotly gauge chart for the health score."""
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number",
+        value=score,
+        title={'text': "Health Score"},
+        gauge={
+            'axis': {'range': [0, 100]},
+            'bar': {'color': "green" if score > 70 else "orange" if score > 40 else "red"},
+            'steps': [
+                {'range': [0, 40], 'color': "lightgray"},
+                {'range': [40, 70], 'color': "gray"}
+            ],
+        }
+    ))
+    fig.update_layout(height=250, margin=dict(l=10, r=10, t=40, b=10))
+    return fig
 
+def generate_health_score_and_findings(report_data, all_cylinder_details):
+    """Calculates a health score and generates automated findings."""
+    
+    # 1. Calculate Health Score
+    # This is a simple heuristic: 100 minus a penalty for each anomaly.
+    # This can be made more sophisticated later.
+    total_anomalies = sum(item['count'] for item in report_data)
+    score = max(0, 100 - total_anomalies * 2) # Subtract 2 points per anomaly
+    
+    # 2. Generate Findings
+    findings = []
+    
+    # Add a general finding based on the score
+    if score >= 80:
+        findings.append(f"Machine health is good with a score of {score}/100.")
+    elif score >= 50:
+        findings.append(f"Machine shows moderate wear with a score of {score}/100. Recommend monitoring.")
+    else:
+        findings.append(f"Machine health is poor with a score of {score}/100. Recommend inspection.")
+
+    # Add specific findings based on cylinder details like Flow Balance
+    FLOW_BALANCE_THRESHOLD = 95.0 
+    for detail in all_cylinder_details:
+        for end in ['ce', 'he']:
+            try:
+                # Extracts the numeric value from strings like "92.4 %"
+                balance_str = detail[f'flow_balance_{end}']
+                if balance_str != "N/A":
+                    balance_val = float(re.findall(r"[-+]?(?:\d*\.\d+|\d+)", balance_str)[0])
+                    if balance_val < FLOW_BALANCE_THRESHOLD:
+                        cyl_name = f"{detail['name'].replace('Cylinder ', '')}{end.upper()}"
+                        findings.append(f"Cylinder {cyl_name}: Low Flow Balance ({balance_val:.2f}%) may indicate leaking discharge valves or rings.")
+            except (ValueError, IndexError):
+                # Ignore if parsing fails for this cylinder end
+                continue
+                
+    return score, findings  
+def display_diagnostic_summary(score, findings):
+    """Displays the Health Score and Automated Findings in a two-column layout."""
+    st.header("✨ AI Diagnostic Analysis")
+    col1, col2 = st.columns([1, 2]) # Give more space to the findings list
+
+    with col1:
+        gauge_fig = create_health_score_gauge(score)
+        st.plotly_chart(gauge_fig, use_container_width=True)
+
+    with col2:
+        st.subheader("Automated Findings")
+        for finding in findings:
+            st.markdown(f"- {finding}")
+            
 # --- Main Application ---
+
 db_client = init_db()
 
 if 'active_session_id' not in st.session_state: st.session_state.active_session_id = None
@@ -518,6 +586,11 @@ if uploaded_files and len(uploaded_files) == 3:
                     
                     # Regenerate plot with correct analysis_ids
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
+                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(st.session_state.discovered_config.get("cylinders", [])))
+                        score, findings = generate_health_score_and_findings(report_data, all_details)
+                        display_diagnostic_summary(score, findings)
+                        st.markdown("---") # Add a separator
+                        # -------------------------------
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Display health report
