@@ -296,14 +296,26 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     return buffer
 
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids):
-    # ... [The code to collect curves and call run_anomaly_detection remains the same] ...
-    
+    # --- START OF CORRECTED FUNCTION ---
+
+    # 1. Define variables from the configuration (This was missing in the previous instruction)
+    pressure_curve = cylinder_config.get('pressure_curve')
+    valve_curves = cylinder_config.get('valve_vibration_curves', [])
+    report_data = []
+
+    # 2. Collect all curves that need analysis
+    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
+    if pressure_curve and pressure_curve in df.columns:
+        curves_to_analyze.append(pressure_curve)
+
+    # 3. Run the AI-based anomaly detection
+    df = run_anomaly_detection(df, curves_to_analyze)
+
+    # 4. Build the report data and initial figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # --- START OF MODIFIED REPORTING BLOCK ---
+
     if pressure_curve and pressure_curve in df.columns:
         anomaly_count = df[f'{pressure_curve}_anom'].sum()
-        # Calculate the average score ONLY for the points that are anomalies
         avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
         report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
         fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
@@ -314,51 +326,19 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             anomaly_count = df[f'{curve_name}_anom'].sum()
             avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
             report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
-    # --- END OF MODIFIED REPORTING BLOCK ---
-    
+
+    # 5. Plot the vibration curves and their anomalies
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
-
-    for i, vc in enumerate(valve_curves):
-        # ... [The existing logic for plotting the vibration curves (envelope or line) remains the same] ...
-        
-        # --- ADD THIS NEW PLOTTING LOGIC INSIDE THE LOOP ---
-        curve_name = vc['curve']
-        if curve_name in df.columns:
-            anomalies_df = df[df[f'{curve_name}_anom']]
-            if not anomalies_df.empty:
-                vibration_data = anomalies_df[curve_name] + current_offset
-                fig.add_trace(go.Scatter(
-                    x=anomalies_df['Crank Angle'],
-                    y=vibration_data,
-                    mode='markers',
-                    name=f"{vc['name']} Anomalies",
-                    marker=dict(
-                        color=anomalies_df[f'{curve_name}_anom_score'], # Color by score
-                        colorscale='Reds', # Use a distinct colorscale
-                        showscale=True,
-                        colorbar=dict(title=f"{vc['name']} Score")
-                    )
-                ), secondary_y=True)
-        # --- END OF NEW PLOTTING LOGIC ---
-
-        # ... [the rest of the loop, including current_offset += vertical_offset, remains the same] ...
-
-    # The rest of the function for plotting remains unchanged and will use the new `_anom` columns
-    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
-    current_offset = 0
-    # ...the rest of the function continues from here...
 
     for i, vc in enumerate(valve_curves):
         curve_name, label_name = vc['curve'], vc['name']
-        
-        # Skip this vibration curve if its column doesn't exist in the DataFrame
         if curve_name not in df.columns:
             continue
             
         color_rgba = f'rgba({colors[i][0]*255},{colors[i][1]*255},{colors[i][2]*255},0.4)'
 
-        # --- Your logic for the toggle remains the same ---
+        # Plot the main vibration curve (envelope or line)
         if envelope_view:
             upper_bound = df[curve_name] + current_offset
             lower_bound = -df[curve_name] + current_offset
@@ -368,6 +348,25 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             vibration_data = df[curve_name] + current_offset
             fig.add_trace(go.Scatter(x=df['Crank Angle'], y=vibration_data, name=label_name, mode='lines', line=dict(color=color_rgba.replace('0.4','1'))), secondary_y=True)
 
+        # Plot the anomalies for this curve as colored markers
+        anomalies_df = df[df[f'{curve_name}_anom']]
+        if not anomalies_df.empty:
+            anomaly_vibration_data = anomalies_df[curve_name] + current_offset
+            fig.add_trace(go.Scatter(
+                x=anomalies_df['Crank Angle'],
+                y=anomaly_vibration_data,
+                mode='markers',
+                name=f"{label_name} Anomalies",
+                marker=dict(
+                    color=anomalies_df[f'{curve_name}_anom_score'],
+                    colorscale='Reds',
+                    showscale=True,
+                    colorbar=dict(title=f"{label_name} Score", x=1.05 + i*0.1) # Offset colorbars
+                ),
+                hoverinfo='text',
+                text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']]
+            ), secondary_y=True)
+        
         analysis_id = analysis_ids.get(vc['name'])
         if analysis_id:
             events_raw = _db_client.execute("SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?", (analysis_id,)).rows
@@ -382,7 +381,10 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     fig.update_layout(title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}", xaxis_title="Crank Angle (deg)", template="ggplot2", legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
     fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
+    
     return fig, report_data
+    # --- END OF CORRECTED FUNCTION ---
+
 # --- Main Application ---
 db_client = init_db()
 
