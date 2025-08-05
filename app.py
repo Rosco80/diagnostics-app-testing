@@ -309,10 +309,20 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     # 3. Run the AI-based anomaly detection
    # We need to add contamination_level to the function's arguments first
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level):
-    # ...
-    # Now, pass it to the analysis function
+    # --- START OF FULLY CORRECTED FUNCTION ---
+
+    # 1. Define variables from the configuration
+    pressure_curve = cylinder_config.get('pressure_curve')
+    valve_curves = cylinder_config.get('valve_vibration_curves', [])
+    report_data = []
+
+    # 2. Collect all curves to analyze (THIS WAS THE MISSING LOGIC)
+    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
+    if pressure_curve and pressure_curve in df.columns:
+        curves_to_analyze.append(pressure_curve)
+
+    # 3. Run the AI-based anomaly detection with the specified sensitivity
     df = run_anomaly_detection(df, curves_to_analyze, contamination_level)
-    # ...
 
     # 4. Build the report data and initial figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -364,7 +374,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     color=anomalies_df[f'{curve_name}_anom_score'],
                     colorscale='Reds',
                     showscale=True,
-                    colorbar=dict(title=f"{label_name} Score", x=1.05 + i*0.1) # Offset colorbars
+                    colorbar=dict(title=f"{label_name} Score", x=1.05 + i*0.1)
                 ),
                 hoverinfo='text',
                 text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']]
@@ -386,6 +396,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
     
     return fig, report_data
+    # --- END OF FULLY CORRECTED FUNCTION ---
     # --- END OF CORRECTED FUNCTION ---
 
 # --- Main Application ---
