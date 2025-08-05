@@ -430,7 +430,7 @@ if uploaded_files and len(uploaded_files) == 3:
             if not st.session_state.discovered_config:
                 st.session_state.discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
             
-            if st.session_state.discovered_.config:
+            if st.session_state.discovered_config:
                 rpm = extract_rpm(files_content['levels'])
                 machine_id = st.session_state.discovered_config.get('machine_id', 'N/A')
                 
