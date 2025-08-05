@@ -59,21 +59,19 @@ def init_db():
         st.stop()
 
 # --- Helper Functions ---
-def run_anomaly_detection(df, curve_names):
+# The function signature now accepts contamination_level
+def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
     Applies Isolation Forest to detect anomalies and calculate their scores.
-
-    Args:
-        df (pd.DataFrame): The input dataframe containing curve data.
-        curve_names (list): A list of column names to analyze for anomalies.
-
-    Returns:
-        pd.DataFrame: The original dataframe with added '_anom' and '_anom_score' columns.
+    ...
     """
     for curve in curve_names:
         if curve in df.columns:
             data = df[[curve]].values
-            model = IsolationForest(contamination='auto', random_state=42)
+            # Use the new parameter here instead of 'auto'
+            model = IsolationForest(contamination=contamination_level, random_state=42)
+            
+            # ... the rest of the function remains the same ...
             
             # Fit the model and get binary predictions (-1 for anomalies)
             predictions = model.fit_predict(data)
@@ -309,7 +307,12 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         curves_to_analyze.append(pressure_curve)
 
     # 3. Run the AI-based anomaly detection
-    df = run_anomaly_detection(df, curves_to_analyze)
+   # We need to add contamination_level to the function's arguments first
+def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level):
+    # ...
+    # Now, pass it to the analysis function
+    df = run_anomaly_detection(df, curves_to_analyze, contamination_level)
+    # ...
 
     # 4. Build the report data and initial figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
@@ -401,9 +404,23 @@ with st.sidebar:
         st.session_state.file_uploader_key += 1
         st.session_state.active_session_id = None
         st.rerun()
+    with st.sidebar:
+    # ... existing code for file upload ...
     st.header("2. View Options")
     envelope_view = st.checkbox("Enable Envelope View", value=True)
     vertical_offset = st.slider("Vertical Offset", 0.0, 5.0, 1.0, 0.1)
+    
+    # --- ADD THIS SLIDER ---
+    st.markdown("---")
+    st.subheader("AI Model Tuning")
+    contamination_level = st.slider(
+        "Anomaly Detection Sensitivity", 
+        min_value=0.01, 
+        max_value=0.20, 
+        value=0.05,  # A reasonable starting default
+        step=0.01,
+        help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
+    )
 
 if uploaded_files and len(uploaded_files) == 3:
     files_content = {}
@@ -433,7 +450,7 @@ if uploaded_files and len(uploaded_files) == 3:
 
                 if selected_cylinder_config:
                     # Generate plot and initial data
-                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {})
+                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
                     
                     # Create or update analysis records in DB
                     analysis_ids = {}
@@ -449,7 +466,7 @@ if uploaded_files and len(uploaded_files) == 3:
                         analysis_ids[item['name']] = analysis_id
                     
                     # Regenerate plot with correct analysis_ids
-                    fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids)
+                    fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Display health report
