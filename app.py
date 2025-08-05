@@ -16,6 +16,7 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
+from sklearn.ensemble import IsolationForest # Add this with your other imports at the top of the file
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -58,6 +59,32 @@ def init_db():
         st.stop()
 
 # --- Helper Functions ---
+def run_anomaly_detection(df, curve_names):
+    """
+    Applies Isolation Forest to detect anomalies in the specified curves.
+
+    Args:
+        df (pd.DataFrame): The input dataframe containing curve data.
+        curve_names (list): A list of column names to analyze for anomalies.
+
+    Returns:
+        pd.DataFrame: The original dataframe with added '_anom' columns.
+    """
+    for curve in curve_names:
+        if curve in df.columns:
+            # Prepare data for the model (it expects a 2D array)
+            data = df[[curve]].values
+
+            # Instantiate and fit the model
+            # contamination='auto' is a good starting point. random_state ensures reproducibility.
+            model = IsolationForest(contamination='auto', random_state=42)
+            predictions = model.fit_predict(data)
+
+            # The model returns -1 for anomalies and 1 for inliers.
+            # We convert this to a boolean series for consistency with the existing logic.
+            df[f'{curve}_anom'] = predictions == -1
+    return df
+    
 def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
     return rs.rows[0][0] if rs.rows else None
@@ -270,26 +297,38 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     valve_curves = cylinder_config.get('valve_vibration_curves', [])
     report_data = []
 
+    # --- START OF REPLACEMENT BLOCK ---
+
+    # 1. Collect all curves from the config that exist in the dataframe
+    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
+    if pressure_curve and pressure_curve in df.columns:
+        curves_to_analyze.append(pressure_curve)
+
+    # 2. Run our new AI-based anomaly detection function on all curves at once
+    df = run_anomaly_detection(df, curves_to_analyze)
+
+    # 3. Build the report_data list based on the new model's output
     fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
-    # ✅ BUG FIX: The pressure curve plot is now inside the conditional block.
-    if pressure_curve in df.columns:
-        # First, add the data to the report
-        pres_mean, pres_std = df[pressure_curve].mean(), df[pressure_curve].std()
-        pres_thresh = pres_mean + 2 * pres_std
-        df[f'{pressure_curve}_anom'] = df[pressure_curve] > pres_thresh
-        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": pres_thresh, "count": df[f'{pressure_curve}_anom'].sum(), "unit": "PSI"})
-        
-        # Second, plot the pressure curve since we know it exists
+
+    if pressure_curve and pressure_curve in df.columns:
+        # The concept of a single 'threshold' is less meaningful with Isolation Forest.
+        # We will store 'null' or a model-based score later. For now, we use 0.0 to maintain DB schema.
+        anomaly_count = df[f'{pressure_curve}_anom'].sum()
+        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": 0.0, "count": anomaly_count, "unit": "PSI"})
         fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
 
     for vc in valve_curves:
         curve_name = vc['curve']
         if curve_name in df.columns:
-            vib_mean, vib_std = df[curve_name].mean(), df[curve_name].std()
-            vib_thresh = vib_mean + 2 * vib_std
-            df[f'{curve_name}_anom'] = df[curve_name] > vib_thresh
-            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": vib_thresh, "count": df[f'{curve_name}_anom'].sum(), "unit": "G"})
+            anomaly_count = df[f'{curve_name}_anom'].sum()
+            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": 0.0, "count": anomaly_count, "unit": "G"})
+
+    # --- END OF REPLACEMENT BLOCK ---
+
+    # The rest of the function for plotting remains unchanged and will use the new `_anom` columns
+    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
+    current_offset = 0
+    # ...the rest of the function continues from here...
 
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
