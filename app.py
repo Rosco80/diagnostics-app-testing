@@ -16,7 +16,7 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
-from sklearn.ensemble import IsolationForest # Add this with your other imports at the top of the file
+from sklearn.ensemble import IsolationForest
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -59,33 +59,23 @@ def init_db():
         st.stop()
 
 # --- Helper Functions ---
-# The function signature now accepts contamination_level
-def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
+def run_anomaly_detection(df, curve_names, contamination_level=0.05):
     """
     Applies Isolation Forest to detect anomalies and calculate their scores.
-    ...
     """
     for curve in curve_names:
         if curve in df.columns:
             data = df[[curve]].values
-            # Use the new parameter here instead of 'auto'
             model = IsolationForest(contamination=contamination_level, random_state=42)
             
-            # ... the rest of the function remains the same ...
-            
-            # Fit the model and get binary predictions (-1 for anomalies)
             predictions = model.fit_predict(data)
             df[f'{curve}_anom'] = predictions == -1
 
-            # Get the raw anomaly scores. Lower scores are more anomalous.
             anomaly_scores = model.score_samples(data)
-            
-            # We invert the scores so that higher values indicate a more severe anomaly.
-            # This is more intuitive for visualization and reporting.
             df[f'{curve}_anom_score'] = -1 * anomaly_scores
             
     return df
-    
+
 def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
     return rs.rows[0][0] if rs.rows else None
@@ -120,7 +110,7 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
         return "N/A"
     except Exception:
         return "N/A"
-        
+
 @st.cache_data
 def load_all_curves_data(_curves_xml_content):
     try:
@@ -184,13 +174,12 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         source_root = ET.fromstring(_source_xml_content)
         levels_root = ET.fromstring(_levels_xml_content)
         col_idx = cylinder_index
-        
+
         def convert_kpa_to_psi(kpa_str):
             if kpa_str == "N/A" or not kpa_str: return "N/A"
             try: return f"{float(kpa_str) * 0.145038:.1f}"
             except (ValueError, TypeError): return kpa_str
 
-        # This is the new helper function from Step 1
         def format_numeric_value(value_str, precision=2):
             if value_str == "N/A" or not value_str: return "N/A"
             try: return f"{float(value_str):.{precision}f}"
@@ -203,13 +192,11 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx + 1)
         rod_diam = find_xml_value(source_root, 'Source', 'PISTON ROD DIAMETER', col_idx + 1)
         
-        # ✅ CHANGED: Extract raw values first
         comp_ratio_he_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=2)
         comp_ratio_ce_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=1)
         power_he_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=2)
         power_ce_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=1)
 
-        # ✅ CHANGED: Apply formatting to the extracted values
         comp_ratio_he = format_numeric_value(comp_ratio_he_raw, precision=2)
         comp_ratio_ce = format_numeric_value(comp_ratio_ce_raw, precision=2)
         power_he = format_numeric_value(power_he_raw, precision=1)
@@ -285,46 +272,25 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
     table = Table(table_data)
     table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                           ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                           ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                           ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
+                              ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                              ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+                              ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
     story.append(table)
     doc.build(story)
     buffer.seek(0)
     return buffer
 
-def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids):
-    # --- START OF CORRECTED FUNCTION ---
-
-    # 1. Define variables from the configuration (This was missing in the previous instruction)
-    pressure_curve = cylinder_config.get('pressure_curve')
-    valve_curves = cylinder_config.get('valve_vibration_curves', [])
-    report_data = []
-
-    # 2. Collect all curves that need analysis
-    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
-    if pressure_curve and pressure_curve in df.columns:
-        curves_to_analyze.append(pressure_curve)
-
-    # 3. Run the AI-based anomaly detection
-   # We need to add contamination_level to the function's arguments first
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level):
-    # --- START OF FULLY CORRECTED FUNCTION ---
-
-    # 1. Define variables from the configuration
     pressure_curve = cylinder_config.get('pressure_curve')
     valve_curves = cylinder_config.get('valve_vibration_curves', [])
     report_data = []
 
-    # 2. Collect all curves to analyze (THIS WAS THE MISSING LOGIC)
     curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
     if pressure_curve and pressure_curve in df.columns:
         curves_to_analyze.append(pressure_curve)
 
-    # 3. Run the AI-based anomaly detection with the specified sensitivity
     df = run_anomaly_detection(df, curves_to_analyze, contamination_level)
 
-    # 4. Build the report data and initial figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     if pressure_curve and pressure_curve in df.columns:
@@ -340,7 +306,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
             report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
 
-    # 5. Plot the vibration curves and their anomalies
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
 
@@ -351,7 +316,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             
         color_rgba = f'rgba({colors[i][0]*255},{colors[i][1]*255},{colors[i][2]*255},0.4)'
 
-        # Plot the main vibration curve (envelope or line)
         if envelope_view:
             upper_bound = df[curve_name] + current_offset
             lower_bound = -df[curve_name] + current_offset
@@ -361,7 +325,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             vibration_data = df[curve_name] + current_offset
             fig.add_trace(go.Scatter(x=df['Crank Angle'], y=vibration_data, name=label_name, mode='lines', line=dict(color=color_rgba.replace('0.4','1'))), secondary_y=True)
 
-        # Plot the anomalies for this curve as colored markers
         anomalies_df = df[df[f'{curve_name}_anom']]
         if not anomalies_df.empty:
             anomaly_vibration_data = anomalies_df[curve_name] + current_offset
@@ -396,8 +359,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
     
     return fig, report_data
-    # --- END OF FULLY CORRECTED FUNCTION ---
-    # --- END OF CORRECTED FUNCTION ---
 
 # --- Main Application ---
 db_client = init_db()
@@ -445,136 +406,118 @@ if uploaded_files and len(uploaded_files) == 3:
             if discovered_config:
                 rpm = extract_rpm(files_content['levels'])
                 machine_id = discovered_config.get('machine_id', 'N/A')
-                # This line should already exist in your code
-# Find this line in your code
-if discovered_config:
-    # Replace everything from here...
-    rpm = extract_rpm(files_content['levels'])
-    machine_id = discovered_config.get('machine_id', 'N/A')
-    
-    # Create the tabs
-    tab1, tab2 = st.tabs(["📈 Diagnostic Chart", "📋 Health Report & Labels"])
-
-    # This variable needs to be accessible by both tabs
-    cylinders = discovered_config.get("cylinders", [])
-    cylinder_names = [c.get("cylinder_name") for c in cylinders]
-    selected_cylinder_name = None # Initialize
-
-    with st.sidebar:
-        # We ensure the cylinder selector is only added if needed
-        if cylinder_names:
-            selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
-
-    # --- TAB 1: DIAGNOSTIC CHART ---
-    with tab1:
-        if selected_cylinder_name:
-            st.header(f"Diagnostics for {selected_cylinder_name}")
-
-            if st.session_state.active_session_id is None:
-                db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-                st.session_state.active_session_id = get_last_row_id(db_client)
-                st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-            selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
-
-            if selected_cylinder_config:
-                _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
                 
-                analysis_ids = {}
-                for item in temp_report_data:
-                    # Query for existing analysis record
-                    rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                    existing_id_row = rs.rows[0] if rs.rows else None
-                    
-                    # Update or Insert logic
-                    if existing_id_row:
-                        analysis_id = existing_id_row[0]
-                        db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
+                tab1, tab2 = st.tabs(["📈 Diagnostic Chart", "📋 Health Report & Labels"])
+
+                cylinders = discovered_config.get("cylinders", [])
+                cylinder_names = [c.get("cylinder_name") for c in cylinders]
+                selected_cylinder_name = None
+
+                with st.sidebar:
+                    if cylinder_names:
+                        selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
+
+                with tab1:
+                    if selected_cylinder_name:
+                        st.header(f"Diagnostics for {selected_cylinder_name}")
+
+                        if st.session_state.active_session_id is None:
+                            db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                            st.session_state.active_session_id = get_last_row_id(db_client)
+                            st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+
+                        selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
+
+                        if selected_cylinder_config:
+                            _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
+                            
+                            analysis_ids = {}
+                            for item in temp_report_data:
+                                rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                                existing_id_row = rs.rows[0] if rs.rows else None
+                                
+                                if existing_id_row:
+                                    analysis_id = existing_id_row[0]
+                                    db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
+                                else:
+                                    db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
+                                    analysis_id = get_last_row_id(db_client)
+                                analysis_ids[item['name']] = analysis_id
+                            
+                            fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
+                            st.plotly_chart(fig, use_container_width=True)
                     else:
-                        db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
-                        analysis_id = get_last_row_id(db_client)
-                    analysis_ids[item['name']] = analysis_id
-                
-                # Regenerate plot with correct analysis_ids and display it
-                fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Select a cylinder from the sidebar to view the diagnostic chart.")
+                        st.info("Select a cylinder from the sidebar to view the diagnostic chart.")
 
-    # --- TAB 2: HEALTH REPORT & LABELS ---
-    with tab2:
-        if selected_cylinder_name and 'report_data' in locals():
-            st.subheader("📋 Compressor Health Report")
-            cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
-            health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
-            if not health_report_df.empty:
-                st.dataframe(health_report_df, use_container_width=True, hide_index=True)
+                with tab2:
+                    if selected_cylinder_name and 'report_data' in locals():
+                        st.subheader("📋 Compressor Health Report")
+                        cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
+                        health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
+                        if not health_report_df.empty:
+                            st.dataframe(health_report_df, use_container_width=True, hide_index=True)
 
-            with st.expander("Add labels and mark valve events"):
-                st.subheader("Fault Labels")
-                for item in report_data:
-                    if item['count'] > 0 and item['name'] != 'Pressure':
-                        with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
-                            st.write(f"**{item['name']} Anomaly**")
-                            selected_label = st.selectbox("Select fault label:", options=FAULT_LABELS, key=f"sel_{analysis_ids[item['name']]}")
-                            custom_label = st.text_input("Or enter custom label if 'Other':", key=f"txt_{analysis_ids[item['name']]}")
-                            if st.form_submit_button("Save Label"):
-                                final_label = custom_label if selected_label == "Other" and custom_label else selected_label
-                                if final_label and final_label != "Other":
-                                    db_client.execute("INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)", (analysis_ids[item['name']], final_label))
-                                    st.success(f"Label '{final_label}' saved for {item['name']}.")
-                
-                st.subheader("Mark Valve Open/Close Events")
-                for item in report_data:
-                    if item['name'] != 'Pressure':
-                        with st.form(key=f"valve_form_{analysis_ids[item['name']]}"):
-                            st.write(f"**{item['name']} Valve Events:**")
-                            cols = st.columns(2)
-                            open_angle = cols[0].number_input("Open Angle", key=f"open_{analysis_ids[item['name']]}", value=None, format="%.2f")
-                            close_angle = cols[1].number_input("Close Angle", key=f"close_{analysis_ids[item['name']]}", value=None, format="%.2f")
-                            if st.form_submit_button(f"Save Events for {item['name']}"):
-                                db_client.execute("DELETE FROM valve_events WHERE analysis_id = ?", (analysis_ids[item['name']],))
-                                if open_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'open', open_angle))
-                                if close_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'close', close_angle))
-                                st.success(f"Events updated for {item['name']}.")
-                                st.rerun()
-            
-            st.header("📄 Export Report")
-if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-    # We check if the 'fig' object from tab 1 was successfully created before trying to use it
-    if 'fig' in locals() and fig is not None:
-        pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
-        if pdf_buffer:
-            st.download_button(
-                label="📥 Download PDF Report",
-                data=pdf_buffer,
-                file_name=f"report_{machine_id}_{selected_cylinder_name}.pdf",
-                mime="application/pdf"
-            )
-    else:
-        # If the fig object doesn't exist, show a warning.
-        st.warning("Chart has not been generated yet. Please view the 'Diagnostic Chart' tab first.")
-        else:
-            st.info("Select a cylinder from the sidebar to view its report and details.")
+                        with st.expander("Add labels and mark valve events"):
+                            st.subheader("Fault Labels")
+                            for item in report_data:
+                                if item['count'] > 0 and item['name'] != 'Pressure':
+                                    with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
+                                        st.write(f"**{item['name']} Anomaly**")
+                                        selected_label = st.selectbox("Select fault label:", options=FAULT_LABELS, key=f"sel_{analysis_ids[item['name']]}")
+                                        custom_label = st.text_input("Or enter custom label if 'Other':", key=f"txt_{analysis_ids[item['name']]}")
+                                        if st.form_submit_button("Save Label"):
+                                            final_label = custom_label if selected_label == "Other" and custom_label else selected_label
+                                            if final_label and final_label != "Other":
+                                                db_client.execute("INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)", (analysis_ids[item['name']], final_label))
+                                                st.success(f"Label '{final_label}' saved for {item['name']}.")
+                            
+                            st.subheader("Mark Valve Open/Close Events")
+                            for item in report_data:
+                                if item['name'] != 'Pressure':
+                                    with st.form(key=f"valve_form_{analysis_ids[item['name']]}"):
+                                        st.write(f"**{item['name']} Valve Events:**")
+                                        cols = st.columns(2)
+                                        open_angle = cols[0].number_input("Open Angle", key=f"open_{analysis_ids[item['name']]}", value=None, format="%.2f")
+                                        close_angle = cols[1].number_input("Close Angle", key=f"close_{analysis_ids[item['name']]}", value=None, format="%.2f")
+                                        if st.form_submit_button(f"Save Events for {item['name']}"):
+                                            db_client.execute("DELETE FROM valve_events WHERE analysis_id = ?", (analysis_ids[item['name']],))
+                                            if open_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'open', open_angle))
+                                            if close_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'close', close_angle))
+                                            st.success(f"Events updated for {item['name']}.")
+                                            st.rerun()
+                        
+                        st.header("📄 Export Report")
+                        if st.button("🔄 Generate Report for this Cylinder", type="primary"):
+                            if 'fig' in locals() and fig is not None:
+                                pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+                                if pdf_buffer:
+                                    st.download_button(
+                                        label="📥 Download PDF Report",
+                                        data=pdf_buffer,
+                                        file_name=f"report_{machine_id}_{selected_cylinder_name}.pdf",
+                                        mime="application/pdf"
+                                    )
+                            else:
+                                st.warning("Chart has not been generated yet. Please view the 'Diagnostic Chart' tab first.")
+                        else:
+                            st.info("Select a cylinder from the sidebar to view its report and details.")
 
-        st.markdown("---")
-        st.header("🔧 All Cylinder Details")
-        all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
-        if all_details:
-            cols = st.columns(len(all_details) or 1)
-            for i, detail in enumerate(all_details):
-                with cols[i]:
-                    st.markdown(f"""
-                    <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                        <h5>{detail['name']}</h5>
-                        <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                        <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                        <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                        <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-# ... to the end of the file
+                        st.markdown("---")
+                        st.header("🔧 All Cylinder Details")
+                        all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+                        if all_details:
+                            cols = st.columns(len(all_details) or 1)
+                            for i, detail in enumerate(all_details):
+                                with cols[i]:
+                                    st.markdown(f"""
+                                    <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
+                                        <h5>{detail['name']}</h5>
+                                        <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                                        <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                                        <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                                        <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                                    </div>
+                                    """, unsafe_allow_html=True)
             else:
                 st.error("Could not discover a valid machine configuration.")
         else:
