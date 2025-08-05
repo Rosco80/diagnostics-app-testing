@@ -349,42 +349,23 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     buffer.seek(0)
     return buffer
 
-def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids):
-    # --- START OF CORRECTED FUNCTION ---
-
-    # 1. Define variables from the configuration (This was missing in the previous instruction)
-    pressure_curve = cylinder_config.get('pressure_curve')
-    valve_curves = cylinder_config.get('valve_vibration_curves', [])
-    report_data = []
-
-    # 2. Collect all curves that need analysis
-    curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
-    if pressure_curve and pressure_curve in df.columns:
-        curves_to_analyze.append(pressure_curve)
-
-    # 3. Run the AI-based anomaly detection
-   # We need to add contamination_level to the function's arguments first
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level):
-    # --- START OF FULLY CORRECTED FUNCTION ---
-
-    # 1. Define variables from the configuration
     pressure_curve = cylinder_config.get('pressure_curve')
     valve_curves = cylinder_config.get('valve_vibration_curves', [])
     report_data = []
 
-    # 2. Collect all curves to analyze (THIS WAS THE MISSING LOGIC)
     curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
     if pressure_curve and pressure_curve in df.columns:
         curves_to_analyze.append(pressure_curve)
 
-    # 3. Run the AI-based anomaly detection with the specified sensitivity
     df = run_anomaly_detection(df, curves_to_analyze, contamination_level)
 
-    # 4. Build the report data and initial figure
     fig = make_subplots(specs=[[{"secondary_y": True}]])
 
     if pressure_curve and pressure_curve in df.columns:
-        anomaly_count = df[f'{pressure_curve}_anom'].sum()
+        # --- FIX #1 IS HERE ---
+        anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
+        # ----------------------
         avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
         report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
         fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
@@ -392,11 +373,12 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     for vc in valve_curves:
         curve_name = vc['curve']
         if curve_name in df.columns:
-            anomaly_count = df[f'{curve_name}_anom'].sum()
+            # --- FIX #2 IS HERE ---
+            anomaly_count = int(df[f'{curve_name}_anom'].sum())
+            # ----------------------
             avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
             report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
 
-    # 5. Plot the vibration curves and their anomalies
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
 
@@ -407,7 +389,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             
         color_rgba = f'rgba({colors[i][0]*255},{colors[i][1]*255},{colors[i][2]*255},0.4)'
 
-        # Plot the main vibration curve (envelope or line)
         if envelope_view:
             upper_bound = df[curve_name] + current_offset
             lower_bound = -df[curve_name] + current_offset
@@ -417,7 +398,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             vibration_data = df[curve_name] + current_offset
             fig.add_trace(go.Scatter(x=df['Crank Angle'], y=vibration_data, name=label_name, mode='lines', line=dict(color=color_rgba.replace('0.4','1'))), secondary_y=True)
 
-        # Plot the anomalies for this curve as colored markers
         anomalies_df = df[df[f'{curve_name}_anom']]
         if not anomalies_df.empty:
             anomaly_vibration_data = anomalies_df[curve_name] + current_offset
@@ -429,11 +409,11 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 marker=dict(
                     color=anomalies_df[f'{curve_name}_anom_score'],
                     colorscale='Reds',
-                    showscale=True,
-                    colorbar=dict(title=f"{label_name} Score", x=1.05 + i*0.1)
+                    showscale=False
                 ),
                 hoverinfo='text',
-                text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']]
+                text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
+                showlegend=False
             ), secondary_y=True)
         
         analysis_id = analysis_ids.get(vc['name'])
@@ -448,11 +428,12 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         current_offset += vertical_offset
     
     fig.update_layout(
-        height=700,  # <-- This sets the height of the chart to 700 pixels
-        title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}",
-        xaxis_title="Crank Angle (deg)",
-        template="ggplot2",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+        height=700, 
+        title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}", 
+        xaxis_title="Crank Angle (deg)", 
+        template="ggplot2", 
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
     fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
     
@@ -521,7 +502,7 @@ if uploaded_files and len(uploaded_files) == 3:
                 if selected_cylinder_config:
                     # Generate plot and initial data
                     _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
-                    st.write("DEBUG: Data to be saved:", temp_report_data)
+                   
                     # Create or update analysis records in DB
                     analysis_ids = {}
                     for item in temp_report_data:
