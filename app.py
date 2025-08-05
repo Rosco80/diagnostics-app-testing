@@ -627,11 +627,7 @@ if uploaded_files and len(uploaded_files) == 3:
                                         st.success(f"Events updated for {item['name']}.")
                                         st.rerun()
 
-                    score, findings = generate_health_score_and_findings(report_data, all_details)
-                    display_diagnostic_summary(score, findings)
-                    st.markdown("---") # Add a separator
-                    # -----------------------------------------------
-                    
+                  
                     # Export and Cylinder Details
                     st.header("📄 Export Report")
                     if st.button("🔄 Generate Report for this Cylinder", type="primary"):
@@ -640,12 +636,25 @@ if uploaded_files and len(uploaded_files) == 3:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
 
                     st.markdown("---")
-                    st.header("🔧 All Cylinder Details")
-                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
-                    if all_details:
-                        cols = st.columns(len(all_details) or 1)
-                        for i, detail in enumerate(all_details):
-                            with cols[i]:
+                   # Look for this section towards the end of your script:
+
+                        st.header("🔧 All Cylinder Details")
+                        cylinders = st.session_state.discovered_config.get("cylinders", [])
+                        
+                        # This line creates the 'all_details' variable
+                        all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+
+                        # --- PASTE THE 3-LINE BLOCK HERE ---
+                        score, findings = generate_health_score_and_findings(report_data, all_details)
+                        display_diagnostic_summary(score, findings)
+                        st.markdown("---") # Add a separator
+                        # ------------------------------------
+
+                        if all_details:
+                            cols = st.columns(len(all_details) or 1)
+                            for i, detail in enumerate(all_details):
+                                with cols[i]:
+                                    # ... (rest of the code for displaying the cards)
                                 st.markdown(f"""
                                 <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
                                     <h5>{detail['name']}</h5>
