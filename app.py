@@ -446,44 +446,47 @@ if uploaded_files and len(uploaded_files) == 3:
                 rpm = extract_rpm(files_content['levels'])
                 machine_id = discovered_config.get('machine_id', 'N/A')
                 # This line should already exist in your code
+# Find this line in your code
 if discovered_config:
+    # Replace everything from here...
     rpm = extract_rpm(files_content['levels'])
     machine_id = discovered_config.get('machine_id', 'N/A')
-    
-    # --- START OF NEW CODE ---
     
     # Create the tabs
     tab1, tab2 = st.tabs(["📈 Diagnostic Chart", "📋 Health Report & Labels"])
 
+    # This variable needs to be accessible by both tabs
+    cylinders = discovered_config.get("cylinders", [])
+    cylinder_names = [c.get("cylinder_name") for c in cylinders]
+    selected_cylinder_name = None # Initialize
+
+    with st.sidebar:
+        # We ensure the cylinder selector is only added if needed
+        if cylinder_names:
+            selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
+
+    # --- TAB 1: DIAGNOSTIC CHART ---
     with tab1:
-        # This code MOVES inside the first tab
-        if st.session_state.active_session_id is None:
-            db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-            st.session_state.active_session_id = get_last_row_id(db_client)
-            # We show the success message in the main area now
-            st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-        cylinders = discovered_config.get("cylinders", [])
-        cylinder_names = [c.get("cylinder_name") for c in cylinders]
-        
-        with st.sidebar:
-            # We ensure the cylinder selector is only added if needed
-            if cylinder_names:
-                selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
-            else:
-                selected_cylinder_name = None
-
         if selected_cylinder_name:
+            st.header(f"Diagnostics for {selected_cylinder_name}")
+
+            if st.session_state.active_session_id is None:
+                db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                st.session_state.active_session_id = get_last_row_id(db_client)
+                st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+
             selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
 
             if selected_cylinder_config:
-                # This logic is now self-contained and runs when a cylinder is selected
                 _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
                 
                 analysis_ids = {}
                 for item in temp_report_data:
+                    # Query for existing analysis record
                     rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
                     existing_id_row = rs.rows[0] if rs.rows else None
+                    
+                    # Update or Insert logic
                     if existing_id_row:
                         analysis_id = existing_id_row[0]
                         db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
@@ -495,11 +498,13 @@ if discovered_config:
                 # Regenerate plot with correct analysis_ids and display it
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
                 st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Select a cylinder from the sidebar to view the diagnostic chart.")
 
+    # --- TAB 2: HEALTH REPORT & LABELS ---
     with tab2:
-        # This code MOVES inside the second tab
-        st.subheader("📋 Compressor Health Report")
-        if selected_cylinder_name: # Check if a cylinder was selected
+        if selected_cylinder_name and 'report_data' in locals():
+            st.subheader("📋 Compressor Health Report")
             cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
             health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
             if not health_report_df.empty:
@@ -507,31 +512,63 @@ if discovered_config:
 
             with st.expander("Add labels and mark valve events"):
                 st.subheader("Fault Labels")
-                # ... [The existing code for labeling forms goes here, unchanged] ...
+                for item in report_data:
+                    if item['count'] > 0 and item['name'] != 'Pressure':
+                        with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
+                            st.write(f"**{item['name']} Anomaly**")
+                            selected_label = st.selectbox("Select fault label:", options=FAULT_LABELS, key=f"sel_{analysis_ids[item['name']]}")
+                            custom_label = st.text_input("Or enter custom label if 'Other':", key=f"txt_{analysis_ids[item['name']]}")
+                            if st.form_submit_button("Save Label"):
+                                final_label = custom_label if selected_label == "Other" and custom_label else selected_label
+                                if final_label and final_label != "Other":
+                                    db_client.execute("INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)", (analysis_ids[item['name']], final_label))
+                                    st.success(f"Label '{final_label}' saved for {item['name']}.")
+                
+                st.subheader("Mark Valve Open/Close Events")
+                for item in report_data:
+                    if item['name'] != 'Pressure':
+                        with st.form(key=f"valve_form_{analysis_ids[item['name']]}"):
+                            st.write(f"**{item['name']} Valve Events:**")
+                            cols = st.columns(2)
+                            open_angle = cols[0].number_input("Open Angle", key=f"open_{analysis_ids[item['name']]}", value=None, format="%.2f")
+                            close_angle = cols[1].number_input("Close Angle", key=f"close_{analysis_ids[item['name']]}", value=None, format="%.2f")
+                            if st.form_submit_button(f"Save Events for {item['name']}"):
+                                db_client.execute("DELETE FROM valve_events WHERE analysis_id = ?", (analysis_ids[item['name']],))
+                                if open_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'open', open_angle))
+                                if close_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'close', close_angle))
+                                st.success(f"Events updated for {item['name']}.")
+                                st.rerun()
             
             st.header("📄 Export Report")
             if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                 # ... [The existing code for the export button goes here, unchanged] ...
+                # Ensure 'fig' from tab 1 is available
+                if 'fig' in locals():
+                    pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+                    if pdf_buffer:
+                        st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
+                else:
+                    st.warning("Chart not generated. Please check the Diagnostic Chart tab.")
+        else:
+            st.info("Select a cylinder from the sidebar to view its report and details.")
 
         st.markdown("---")
         st.header("🔧 All Cylinder Details")
         all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
-        # ... [The existing code for displaying all cylinder details goes here, unchanged] ...
+        if all_details:
+            cols = st.columns(len(all_details) or 1)
+            for i, detail in enumerate(all_details):
+                with cols[i]:
+                    st.markdown(f"""
+                    <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
+                        <h5>{detail['name']}</h5>
+                        <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                        <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                        <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                        <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-    # --- END OF NEW CODE ---
-                    if all_details:
-                        cols = st.columns(len(all_details) or 1)
-                        for i, detail in enumerate(all_details):
-                            with cols[i]:
-                                st.markdown(f"""
-                                <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                                    <h5>{detail['name']}</h5>
-                                    <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                                    <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                                    <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                                    <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
-                                </div>
-                                """, unsafe_allow_html=True)
+# ... to the end of the file
             else:
                 st.error("Could not discover a valid machine configuration.")
         else:
