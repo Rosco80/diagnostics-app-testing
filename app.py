@@ -1,7 +1,3 @@
-"""
-AI-Powered Machine Diagnostics Analyzer
-"""
-
 import streamlit as st
 import xml.etree.ElementTree as ET
 import re
