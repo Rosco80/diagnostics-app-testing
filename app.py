@@ -232,13 +232,13 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             source_root, 'Source', 'COMPRESSOR MODEL', 2
         )
         serial_number = find_xml_value(
-            source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 2
+            source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 1
         )
         rated_rpm = find_xml_value(
-            source_root, 'Source', 'COMPRESSOR RATED RPM', 2
+            source_root, 'Source', 'COMPRESSOR RATED RPM', 1
         )
         rated_hp = find_xml_value(
-            source_root, 'Source', 'COMPRESSOR RATED HP', 2
+            source_root, 'Source', 'COMPRESSOR RATED HP', 1
         )
 
         # Cylinder-specific metadata
