@@ -666,7 +666,7 @@ if uploaded_files and len(uploaded_files) == 3:
                st.session_state['auto_discover_config'] = discovered_config
                rpm = extract_rpm(files_content['levels'])
                machine_id = discovered_config.get('machine_id', 'N/A')
-                if st.session_state.active_session_id is None:
+               if st.session_state.active_session_id is None:
                     db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
                     st.session_state.active_session_id = get_last_row_id(db_client)
                     st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
