@@ -229,7 +229,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
 
         # Additional machine-level metadata
         machine_model = find_xml_value(
-            source_root, 'Source', 'COMPRESSOR MODEL', 2
+            source_root, 'Source', 'COMPRESSOR MODEL', 1
         )
         serial_number = find_xml_value(
             source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 1
