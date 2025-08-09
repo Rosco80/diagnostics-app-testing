@@ -217,7 +217,9 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         source_root = ET.fromstring(_source_xml_content)
 
         # Determine number of cylinders
-        num_cyl_str = find_xml_value(source_root, 'Source', "COMPRESSOR NUMBER OF CYLINDERS", 2)
+        num_cyl_str = find_xml_value(
+            source_root, 'Source', "COMPRESSOR NUMBER OF CYLINDERS", 2
+        )
         if num_cyl_str == "N/A" or int(num_cyl_str) == 0:
             return None
         num_cylinders = int(num_cyl_str)
@@ -226,10 +228,18 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         machine_id = find_xml_value(source_root, 'Source', "Machine", 1)
 
         # Additional machine-level metadata
-        machine_model = find_xml_value(source_root, 'Source', 'COMPRESSOR MODEL', 2)
-        serial_number = find_xml_value(source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 2)
-        rated_rpm = find_xml_value(source_root, 'Source', 'COMPRESSOR RATED RPM', 2)
-        rated_hp = find_xml_value(source_root, 'Source', 'COMPRESSOR RATED HP', 2)
+        machine_model = find_xml_value(
+            source_root, 'Source', 'COMPRESSOR MODEL', 2
+        )
+        serial_number = find_xml_value(
+            source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 2
+        )
+        rated_rpm = find_xml_value(
+            source_root, 'Source', 'COMPRESSOR RATED RPM', 2
+        )
+        rated_hp = find_xml_value(
+            source_root, 'Source', 'COMPRESSOR RATED HP', 2
+        )
 
         # Cylinder-specific metadata
         bore_values = []
@@ -238,27 +248,71 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         num_cols_offset_start = 2  # first cylinder’s value is in column index 2
 
         for cyl_idx in range(num_cylinders):
-            bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', num_cols_offset_start + cyl_idx)
-            bore_values.append(float(bore) if bore not in [None, ''] else None)
+            bore = find_xml_value(
+                source_root,
+                'Source',
+                'COMPRESSOR CYLINDER BORE',
+                num_cols_offset_start + cyl_idx,
+            )
+            bore_values.append(float(bore) if bore not in [None, '', 'N/A'] else None)
 
-            rod_dia = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER PISTON ROD DIAMETER', num_cols_offset_start + cyl_idx)
-            rod_diameter_values.append(float(rod_dia) if rod_dia not in [None, ''] else None)
+            rod_dia = find_xml_value(
+                source_root,
+                'Source',
+                'COMPRESSOR CYLINDER PISTON ROD DIAMETER',
+                num_cols_offset_start + cyl_idx,
+            )
+            rod_diameter_values.append(float(rod_dia) if rod_dia not in [None, '', 'N/A'] else None)
 
-            stroke = find_xml_value(source_root, 'Source', 'COMPRESSOR THROW STROKE LENGTH', num_cols_offset_start + cyl_idx)
-            stroke_values.append(float(stroke) if stroke not in [None, ''] else None)
+            stroke = find_xml_value(
+                source_root,
+                'Source',
+                'COMPRESSOR THROW STROKE LENGTH',
+                num_cols_offset_start + cyl_idx,
+            )
+            stroke_values.append(float(stroke) if stroke not in [None, '', 'N/A'] else None)
 
         # Build configuration for each cylinder
         cylinders_config = []
         for i in range(1, num_cylinders + 1):
             # Identify the pressure and vibration curves using original pattern matching
-            pressure_curve = next((c for c in all_curve_names if f".{i}H." in c and "STATIC" in c), None) or \
-                             next((c for c in all_curve_names if f".{i}C." in c and "STATIC" in c), None)
+            pressure_curve = next(
+                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c),
+                None,
+            ) or next(
+                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c),
+                None,
+            )
 
             valve_curves = [
-                {"name": "HE Discharge", "curve": next((c for c in all_curve_names if f".{i}HD" in c and "VIBRATION" in c), None)},
-                {"name": "HE Suction", "curve": next((c for c in all_curve_names if f".{i}HS" in c and "VIBRATION" in c), None)},
-                {"name": "CE Discharge", "curve": next((c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c), None)},
-                {"name": "CE Suction", "curve": next((c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c), None)}
+                {
+                    "name": "HE Discharge",
+                    "curve": next(
+                        (c for c in all_curve_names if f".{i}HD" in c and "VIBRATION" in c),
+                        None,
+                    ),
+                },
+                {
+                    "name": "HE Suction",
+                    "curve": next(
+                        (c for c in all_curve_names if f".{i}HS" in c and "VIBRATION" in c),
+                        None,
+                    ),
+                },
+                {
+                    "name": "CE Discharge",
+                    "curve": next(
+                        (c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c),
+                        None,
+                    ),
+                },
+                {
+                    "name": "CE Suction",
+                    "curve": next(
+                        (c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c),
+                        None,
+                    ),
+                },
             ]
 
             if pressure_curve and any(vc['curve'] for vc in valve_curves):
@@ -267,17 +321,19 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                 stroke = stroke_values[i - 1]
                 volume = None
                 if bore is not None and stroke is not None:
-                    volume = math.pi * (bore / 2)**2 * stroke
+                    volume = math.pi * (bore / 2) ** 2 * stroke
 
-                cylinders_config.append({
-                    "cylinder_name": f"Cylinder {i}",
-                    "pressure_curve": pressure_curve,
-                    "valve_vibration_curves": [vc for vc in valve_curves if vc['curve']],
-                    "bore": bore,
-                    "rod_diameter": rod_dia,
-                    "stroke": stroke,
-                    "volume": volume
-                })
+                cylinders_config.append(
+                    {
+                        "cylinder_name": f"Cylinder {i}",
+                        "pressure_curve": pressure_curve,
+                        "valve_vibration_curves": [vc for vc in valve_curves if vc['curve']],
+                        "bore": bore,
+                        "rod_diameter": rod_dia,
+                        "stroke": stroke,
+                        "volume": volume,
+                    }
+                )
 
         return {
             "machine_id": machine_id,
@@ -286,12 +342,13 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             "rated_rpm": rated_rpm,
             "rated_hp": rated_hp,
             "num_cylinders": num_cylinders,
-            "cylinders": cylinders_config
+            "cylinders": cylinders_config,
         }
 
     except Exception as e:
         st.error(f"Error during auto-discovery: {e}")
         return None
+
 
 def generate_health_report_table(_source_xml_content, _levels_xml_content, cylinder_index):
     try:
@@ -345,36 +402,99 @@ def get_all_cylinder_details(_source_xml_content, _levels_xml_content, num_cylin
     try:
         source_root = ET.fromstring(_source_xml_content)
         levels_root = ET.fromstring(_levels_xml_content)
+
         def convert_kpa_to_psi(kpa_str):
-            if kpa_str == "N/A" or not kpa_str: return "N/A"
-            try: return f"{float(kpa_str) * 0.145038:.1f}"
-            except (ValueError, TypeError): return kpa_str
+            if kpa_str == "N/A" or not kpa_str:
+                return "N/A"
+            try:
+                return f"{float(kpa_str) * 0.145038:.1f}"
+            except (ValueError, TypeError):
+                return kpa_str
+
         def format_flow_balance(value_str):
-            if value_str == "N/A" or not value_str: return "N/A"
-            try: return f"{float(value_str) * 100:.1f} %"
-            except (ValueError, TypeError): return value_str
-        stage_suction_p_psi = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'SUCTION PRESSURE GAUGE', 2))
-        stage_discharge_p_psi = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'DISCHARGE PRESSURE GAUGE', 2))
-        stage_suction_temp = find_xml_value(levels_root, 'Levels', 'SUCTION GAUGE TEMPERATURE', 2)
+            if value_str == "N/A" or not value_str:
+                return "N/A"
+            try:
+                return f"{float(value_str) * 100:.1f} %"
+            except (ValueError, TypeError):
+                return value_str
+
+        stage_suction_p_psi = convert_kpa_to_psi(
+            find_xml_value(levels_root, 'Levels', 'SUCTION PRESSURE GAUGE', 2)
+        )
+        stage_discharge_p_psi = convert_kpa_to_psi(
+            find_xml_value(levels_root, 'Levels', 'DISCHARGE PRESSURE GAUGE', 2)
+        )
+        stage_suction_temp = find_xml_value(
+            levels_root, 'Levels', 'SUCTION GAUGE TEMPERATURE', 2
+        )
+
         for i in range(1, num_cylinders + 1):
             col_idx = i + 1
-            fb_ce_raw = find_xml_value(source_root, 'Source', 'FLOW BALANCE', col_idx, occurrence=1)
-            fb_he_raw = find_xml_value(source_root, 'Source', 'FLOW BALANCE', col_idx, occurrence=2)
+
+            # Retrieve flow balance values
+            fb_ce_raw = find_xml_value(
+                source_root, 'Source', 'FLOW BALANCE', col_idx, occurrence=1
+            )
+            fb_he_raw = find_xml_value(
+                source_root, 'Source', 'FLOW BALANCE', col_idx, occurrence=2
+            )
+
+            # Extract dimension values
+            bore_value = find_xml_value(
+                source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx
+            )
+            rod_dia_value = find_xml_value(
+                source_root,
+                'Source',
+                'COMPRESSOR CYLINDER PISTON ROD DIAMETER',
+                col_idx,
+            )
+            stroke_value = find_xml_value(
+                source_root,
+                'Source',
+                'COMPRESSOR THROW STROKE LENGTH',
+                col_idx,
+            )
+
+            # Compute volume (in³) if bore and stroke are numeric
+            volume_val = "N/A"
+            try:
+                if bore_value not in [None, '', 'N/A'] and stroke_value not in [
+                    None,
+                    '',
+                    'N/A',
+                ]:
+                    bore_f = float(bore_value)
+                    stroke_f = float(stroke_value)
+                    volume_val = f"{math.pi * (bore_f / 2) ** 2 * stroke_f:.2f}"
+            except Exception:
+                volume_val = "N/A"
+
             detail = {
                 "name": f"Cylinder {i}",
-                "bore": f"{find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx)} in",
+                "bore": f"{bore_value} in",
+                "rod_diameter": f"{rod_dia_value} in"
+                if rod_dia_value not in [None, '', 'N/A']
+                else "N/A",
+                "stroke": f"{stroke_value} in"
+                if stroke_value not in [None, '', 'N/A']
+                else "N/A",
+                "volume": f"{volume_val} in³" if volume_val != "N/A" else "N/A",
                 "suction_temp": f"{stage_suction_temp} °C",
                 "discharge_temp": f"{find_xml_value(levels_root, 'Levels', 'COMP CYL, DISCHARGE TEMPERATURE', col_idx)} °C",
                 "suction_pressure": f"{stage_suction_p_psi} psig",
                 "discharge_pressure": f"{stage_discharge_p_psi} psig",
                 "flow_balance_ce": format_flow_balance(fb_ce_raw),
-                "flow_balance_he": format_flow_balance(fb_he_raw)
+                "flow_balance_he": format_flow_balance(fb_he_raw),
             }
             details.append(detail)
+
         return details
     except Exception as e:
         st.warning(f"Could not extract cylinder details: {e}")
         return []
+
 
 def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None):
     if not REPORTLAB_AVAILABLE:
@@ -631,13 +751,17 @@ if uploaded_files and len(uploaded_files) == 3:
                             with cols[i]:
                                 st.markdown(f"""
                                 <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                                    <h5>{detail['name']}</h5>
-                                    <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                                    <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                                    <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                                    <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                                <h5>{detail['name']}</h5>
+                                <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                                <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
+                                <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
+                                <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
+                                <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                                <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                                <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
                                 </div>
                                 """, unsafe_allow_html=True)
+
             else:
                 st.error("Could not discover a valid machine configuration.")
         # ... previous code for file processing ...
