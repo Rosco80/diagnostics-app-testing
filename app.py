@@ -18,6 +18,7 @@ from plotly.subplots import make_subplots
 import libsql_client
 from sklearn.ensemble import IsolationForest # Add this with your other imports at the top of the file
 import plotly.express as px
+import math
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -214,23 +215,80 @@ def extract_rpm(_levels_xml_content):
 def auto_discover_configuration(_source_xml_content, all_curve_names):
     try:
         source_root = ET.fromstring(_source_xml_content)
+
+        # Determine number of cylinders
         num_cyl_str = find_xml_value(source_root, 'Source', "COMPRESSOR NUMBER OF CYLINDERS", 2)
-        machine_id = find_xml_value(source_root, 'Source', "Machine", 1)
-        if num_cyl_str == "N/A" or int(num_cyl_str) == 0: return None
+        if num_cyl_str == "N/A" or int(num_cyl_str) == 0:
+            return None
         num_cylinders = int(num_cyl_str)
+
+        # Machine identifier
+        machine_id = find_xml_value(source_root, 'Source', "Machine", 1)
+
+        # Additional machine-level metadata
+        machine_model = find_xml_value(source_root, 'Source', 'COMPRESSOR MODEL', 2)
+        serial_number = find_xml_value(source_root, 'Source', 'COMPRESSOR SERIAL NUMBER', 2)
+        rated_rpm = find_xml_value(source_root, 'Source', 'COMPRESSOR RATED RPM', 2)
+        rated_hp = find_xml_value(source_root, 'Source', 'COMPRESSOR RATED HP', 2)
+
+        # Cylinder-specific metadata
+        bore_values = []
+        rod_diameter_values = []
+        stroke_values = []
+        num_cols_offset_start = 2  # first cylinder’s value is in column index 2
+
+        for cyl_idx in range(num_cylinders):
+            bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', num_cols_offset_start + cyl_idx)
+            bore_values.append(float(bore) if bore not in [None, ''] else None)
+
+            rod_dia = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER PISTON ROD DIAMETER', num_cols_offset_start + cyl_idx)
+            rod_diameter_values.append(float(rod_dia) if rod_dia not in [None, ''] else None)
+
+            stroke = find_xml_value(source_root, 'Source', 'COMPRESSOR THROW STROKE LENGTH', num_cols_offset_start + cyl_idx)
+            stroke_values.append(float(stroke) if stroke not in [None, ''] else None)
+
+        # Build configuration for each cylinder
         cylinders_config = []
         for i in range(1, num_cylinders + 1):
+            # Identify the pressure and vibration curves using original pattern matching
             pressure_curve = next((c for c in all_curve_names if f".{i}H." in c and "STATIC" in c), None) or \
                              next((c for c in all_curve_names if f".{i}C." in c and "STATIC" in c), None)
+
             valve_curves = [
                 {"name": "HE Discharge", "curve": next((c for c in all_curve_names if f".{i}HD" in c and "VIBRATION" in c), None)},
                 {"name": "HE Suction", "curve": next((c for c in all_curve_names if f".{i}HS" in c and "VIBRATION" in c), None)},
                 {"name": "CE Discharge", "curve": next((c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c), None)},
                 {"name": "CE Suction", "curve": next((c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c), None)}
             ]
+
             if pressure_curve and any(vc['curve'] for vc in valve_curves):
-                cylinders_config.append({"cylinder_name": f"Cylinder {i}", "pressure_curve": pressure_curve, "valve_vibration_curves": [vc for vc in valve_curves if vc['curve']]})
-        return {"machine_id": machine_id, "cylinders": cylinders_config}
+                bore = bore_values[i - 1]
+                rod_dia = rod_diameter_values[i - 1]
+                stroke = stroke_values[i - 1]
+                volume = None
+                if bore is not None and stroke is not None:
+                    volume = math.pi * (bore / 2)**2 * stroke
+
+                cylinders_config.append({
+                    "cylinder_name": f"Cylinder {i}",
+                    "pressure_curve": pressure_curve,
+                    "valve_vibration_curves": [vc for vc in valve_curves if vc['curve']],
+                    "bore": bore,
+                    "rod_diameter": rod_dia,
+                    "stroke": stroke,
+                    "volume": volume
+                })
+
+        return {
+            "machine_id": machine_id,
+            "model": machine_model,
+            "serial_number": serial_number,
+            "rated_rpm": rated_rpm,
+            "rated_hp": rated_hp,
+            "num_cylinders": num_cylinders,
+            "cylinders": cylinders_config
+        }
+
     except Exception as e:
         st.error(f"Error during auto-discovery: {e}")
         return None
