@@ -671,14 +671,14 @@ if uploaded_files and len(uploaded_files) == 3:
                     st.session_state.active_session_id = get_last_row_id(db_client)
                     st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
 
-                cylinders = discovered_config.get("cylinders", [])
-                cylinder_names = [c.get("cylinder_name") for c in cylinders]
-                with st.sidebar:
+               cylinders = discovered_config.get("cylinders", [])
+               cylinder_names = [c.get("cylinder_name") for c in cylinders]
+               with st.sidebar:
                     selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
                 
-                selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
+               selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
 
-                if selected_cylinder_config:
+               if selected_cylinder_config:
                     # Generate plot and initial data
                     _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
                    
