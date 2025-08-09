@@ -749,18 +749,17 @@ if uploaded_files and len(uploaded_files) == 3:
                         cols = st.columns(len(all_details) or 1)
                         for i, detail in enumerate(all_details):
                             with cols[i]:
+                                cfg = st.session_state.get('auto_discover_config', {})
                                 st.markdown(f"""
-                                <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                                <h5>{detail['name']}</h5>
-                                <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                                <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
-                                <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
-                                <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
-                                <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                                <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                                <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                                <div style='border:1px solid #ddd;border-radius:6px;padding:10px;margin:8px 0;'>
+                                  <strong>Machine ID:</strong> {cfg.get('machine_id','N/A')} &nbsp;|&nbsp;
+                                  <strong>Model:</strong> {cfg.get('model','N/A')} &nbsp;|&nbsp;
+                                  <strong>Serial:</strong> {cfg.get('serial_number','N/A')} &nbsp;|&nbsp;
+                                  <strong>Rated RPM:</strong> {cfg.get('rated_rpm','N/A')} &nbsp;|&nbsp;
+                                  <strong>Rated HP:</strong> {cfg.get('rated_hp','N/A')}
                                 </div>
                                 """, unsafe_allow_html=True)
+
 
             else:
                 st.error("Could not discover a valid machine configuration.")
