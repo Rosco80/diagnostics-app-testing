@@ -667,7 +667,9 @@ with st.sidebar:
     st.header("2. View Options")
     envelope_view = st.checkbox("Enable Envelope View", value=True)
     vertical_offset = st.slider("Vertical Offset", 0.0, 5.0, 1.0, 0.1)
-
+    view_mode = st.radio("View Mode", ["Crank-angle", "P-V"], index=0)
+    clearance_pct = st.number_input("Clearance (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5, help="Estimated clearance volume as % of swept volume (MVP approximation).")
+    
     st.markdown("---")
     st.subheader("AI Model Tuning")
     contamination_level = st.slider(
