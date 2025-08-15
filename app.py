@@ -758,7 +758,7 @@ if uploaded_files and len(uploaded_files) == 3:
                                             options=FAULT_LABELS,
                                             index=default_index,
                                             key=f"sel_{analysis_ids[item['name']]}")
-                                                else:
+                                            else:
                                                 selected_label = st.selectbox("Select fault label:",
                                                 options=FAULT_LABELS,
                                                 key=f"sel_{analysis_ids[item['name']]}")
