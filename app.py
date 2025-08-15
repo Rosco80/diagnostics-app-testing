@@ -751,24 +751,35 @@ if uploaded_files and len(uploaded_files) == 3:
                             if item['count'] > 0 and item['name'] != 'Pressure':
                                 with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
                                     st.write(f"**{item['name']} Anomaly**")
-                                    default_label = suggestions.get(item['name'], None)
+                                                                        default_label = suggestions.get(item['name'], None)
                                     if default_label and default_label in FAULT_LABELS:
-                                            default_index = FAULT_LABELS.index(default_label)
-                                            selected_label = st.selectbox("Select fault label:",
+                                        default_index = FAULT_LABELS.index(default_label)
+                                        selected_label = st.selectbox(
+                                            "Select fault label:",
                                             options=FAULT_LABELS,
                                             index=default_index,
-                                            key=f"sel_{analysis_ids[item['name']]}")
-                                            else:
-                                                selected_label = st.selectbox("Select fault label:",
-                                                options=FAULT_LABELS,
-                                                key=f"sel_{analysis_ids[item['name']]}")
+                                            key=f"sel_{analysis_ids[item['name']]}"
+                                        )
+                                    else:
+                                        selected_label = st.selectbox(
+                                            "Select fault label:",
+                                            options=FAULT_LABELS,
+                                            key=f"sel_{analysis_ids[item['name']]}"
+                                        )
 
-                                    custom_label = st.text_input("Or enter custom label if 'Other':", key=f"txt_{analysis_ids[item['name']]}")
+                                    custom_label = st.text_input(
+                                        "Or enter custom label if 'Other':",
+                                        key=f"txt_{analysis_ids[item['name']]}"
+                                    )
                                     if st.form_submit_button("Save Label"):
                                         final_label = custom_label if selected_label == "Other" and custom_label else selected_label
                                         if final_label and final_label != "Other":
-                                            db_client.execute("INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)", (analysis_ids[item['name']], final_label))
+                                            db_client.execute(
+                                                "INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)",
+                                                (analysis_ids[item['name']], final_label)
+                                            )
                                             st.success(f"Label '{final_label}' saved for {item['name']}.")
+
                         
                         st.subheader("Mark Valve Open/Close Events")
                         for item in report_data:
