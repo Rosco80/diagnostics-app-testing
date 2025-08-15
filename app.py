@@ -576,14 +576,14 @@ def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
      - clearance volume = (clearance% of swept)
         """
      if bore_in is None or stroke_in is None:
-            return None  # missing geometry
-     area = math.pi * (bore_in / 2.0) ** 2           # in^2
-     theta = np.deg2rad(crank_deg.values)            # radians
-     piston_pos = (stroke_in / 2.0) * (1 - np.cos(theta))  # in
-     swept_vol = area * stroke_in                    # in^3
-     v_min = (clearance_percent / 100.0) * swept_vol # in^3
-     V = v_min + area * piston_pos                   # in^3
-     return V    
+        return None  # missing geometry
+        area = math.pi * (bore_in / 2.0) ** 2           # in^2
+        theta = np.deg2rad(crank_deg.values)            # radians
+        piston_pos = (stroke_in / 2.0) * (1 - np.cos(theta))  # in
+        swept_vol = area * stroke_in                    # in^3
+        v_min = (clearance_percent / 100.0) * swept_vol # in^3
+        V = v_min + area * piston_pos                   # in^3
+        return V    
 
     if pressure_curve and pressure_curve in df.columns:
         # --- FIX #1 IS HERE ---
