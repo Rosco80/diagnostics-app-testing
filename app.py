@@ -597,6 +597,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
+# Replace your entire P-V mode section in generate_cylinder_view with this:
+
     # --- P-V mode ---
     if view_mode == "P-V":
         bore = cylinder_config.get("bore")
@@ -611,7 +613,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 if V is not None:
                     fig = go.Figure()
                     
-                    # IMPROVED: Add closed loop visualization
+                    # Add the P-V cycle
                     fig.add_trace(go.Scatter(
                         x=V, y=df[pressure_curve],
                         mode="lines+markers",
@@ -666,6 +668,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
         else:
             st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
+    
+    # --- Crank-angle mode (default) ---
+    # Your existing crank-angle code continues here...
     
     # --- Crank-angle mode (default) ---
     # [Rest of your existing crank-angle visualization code remains unchanged]
