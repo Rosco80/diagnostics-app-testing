@@ -729,8 +729,8 @@ if uploaded_files and len(uploaded_files) == 3:
                     suggestions = run_rule_based_diagnostics(report_data)
                     if suggestions:
                         st.subheader("🛠 Rule‑Based Diagnostics")
-                            for name, suggestion in suggestions.items():
-                            st.warning(f"{name}: {suggestion}")
+                        for name, suggestion in suggestions.items():
+                        st.warning(f"{name}: {suggestion}")
 
                    # Compute and display a health score
                     health_score = compute_health_score(report_data, diagnostics)
