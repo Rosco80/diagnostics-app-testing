@@ -157,6 +157,20 @@ def run_rule_based_diagnostics(report_data):
             diagnostics.append(f'Possible {item["name"]} wear')
     return diagnostics
     
+def compute_health_score(report_data, diagnostics):
+    """
+    Computes a simple health index from anomalies and rule-based diagnostics.
+    Starts from 100 and subtracts a penalty for each anomaly and each diagnostic message.
+    Returns a value between 0 and 100.
+    """
+    score = 100
+    # Subtract one point per anomaly detected
+    for item in report_data:
+        score -= item['count']
+    # Subtract an additional five points per diagnostic rule triggered
+    score -= 5 * len(diagnostics)
+    # Keep the score within 0–100
+    return max(min(score, 100), 0)
     
 def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
@@ -718,7 +732,9 @@ if uploaded_files and len(uploaded_files) == 3:
                         st.subheader("🛠 Rule-Based Diagnostics")
                     for diag in diagnostics:
                         st.warning(diag)
-
+                   # Compute and display a health score
+                    health_score = compute_health_score(report_data, diagnostics)
+                    st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Display health report
