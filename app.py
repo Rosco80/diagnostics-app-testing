@@ -733,7 +733,7 @@ if uploaded_files and len(uploaded_files) == 3:
                             st.warning(f"{name}: {suggestion}")
 
                    # Compute and display a health score
-                    health_score = compute_health_score(report_data, diagnostics)
+                    health_score = compute_health_score(report_data, suggestions)
                     st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
 
