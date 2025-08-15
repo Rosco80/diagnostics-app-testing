@@ -144,15 +144,16 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
     return df
 def run_rule_based_diagnostics(report_data):
     """
-    Applies simple rule-based logic and returns a dict mapping report items
-    to a suggested label (or None if no suggestion).
+    Returns a dict: { item['name'] -> suggested_label_in_FAULT_LABELS }
     """
     suggestions = {}
     for item in report_data:
+        # Pressure anomalies -> suggest Valve Leakage
         if item['name'] == 'Pressure' and item['count'] > 10:
             suggestions[item['name']] = 'Valve Leakage'
+        # Any valve anomalies -> suggest Valve Wear (generic, matches FAULT_LABELS)
         elif item['name'] != 'Pressure' and item['count'] > 5:
-            suggestions[item['name']] = f'{item["name"]} wear'
+            suggestions[item['name']] = 'Valve Wear'
     return suggestions
     
 def compute_health_score(report_data, diagnostics):
@@ -751,13 +752,13 @@ if uploaded_files and len(uploaded_files) == 3:
                             if item['count'] > 0 and item['name'] != 'Pressure':
                                 with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
                                     st.write(f"**{item['name']} Anomaly**")
-                                    default_label = suggestions.get(item['name'], None)
-                                    if default_label and default_label in FAULT_LABELS:
-                                        default_index = FAULT_LABELS.index(default_label)
-                                        selected_label = st.selectbox(
+                                   
+                                    default_label = suggestions.get(item['name'], "Normal")
+                                    if default_label in FAULT_LABELS:
+                                       selected_label = st.selectbox(
                                             "Select fault label:",
                                             options=FAULT_LABELS,
-                                            index=default_index,
+                                            index=FAULT_LABELS.index(default_label),
                                             key=f"sel_{analysis_ids[item['name']]}"
                                         )
                                     else:
