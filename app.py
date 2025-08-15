@@ -680,7 +680,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     # [Continue with rest of your existing valve curve plotting code...]
     
     return fig, report_data
-        except Exception as e:
+    except Exception as e:
                 st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
         else:
             st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
