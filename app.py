@@ -98,6 +98,7 @@ def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
     except Exception as e:
         st.error(f"Volume computation error: {e}")
         return None
+
 def display_historical_analysis(db_client):
     """
     Queries the database for historical data and displays it as a trend chart.
@@ -667,11 +668,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             except Exception as e:
                 st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
         else:
-            st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
-    
-    # --- Crank-angle mode (default) ---
-    # Your existing crank-angle code continues here...
-    
+            st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")    
     # --- Crank-angle mode (default) ---
     # [Rest of your existing crank-angle visualization code remains unchanged]
     if pressure_curve and pressure_curve in df.columns:
