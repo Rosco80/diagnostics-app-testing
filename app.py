@@ -585,6 +585,8 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     buffer.seek(0)
     return buffer
 
+# REPLACE your entire generate_cylinder_view function with this corrected version:
+
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0):
     pressure_curve = cylinder_config.get('pressure_curve')
     valve_curves = cylinder_config.get('valve_vibration_curves', [])
@@ -595,14 +597,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         curves_to_analyze.append(pressure_curve)
 
     df = run_anomaly_detection(df, curves_to_analyze, contamination_level)
-
-    fig = make_subplots(specs=[[{"secondary_y": True}]])
-    
-# Replace your entire P-V mode section in generate_cylinder_view with this:
-
-    # COMPLETE REPLACEMENT for your P-V mode section
-# Find this in your generate_cylinder_view function and replace EVERYTHING from 
-# "# --- P-V mode ---" until "# --- Crank-angle mode (default) ---"
 
     # --- P-V mode ---
     if view_mode == "P-V":
@@ -668,7 +662,97 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         text="BDC", showarrow=True, arrowhead=2, ax=-20, ay=20
                     )
                     
+                    # Add pressure data to report_data for consistency
+                    if pressure_curve and pressure_curve in df.columns:
+                        anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
+                        avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
+                        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
+                    
                     return fig, report_data
+            except Exception as e:
+                st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
+        else:
+            st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
+    
+    # --- Crank-angle mode (default) ---
+    # Only execute if we're NOT in P-V mode or P-V mode failed
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    
+    if pressure_curve and pressure_curve in df.columns:
+        anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
+        avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
+        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
+        fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
+
+    for vc in valve_curves:
+        curve_name = vc['curve']
+        if curve_name in df.columns:
+            anomaly_count = int(df[f'{curve_name}_anom'].sum())
+            avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
+            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
+
+    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
+    current_offset = 0
+
+    for i, vc in enumerate(valve_curves):
+        curve_name, label_name = vc['curve'], vc['name']
+        if curve_name not in df.columns:
+            continue
+            
+        color_rgba = f'rgba({colors[i][0]*255},{colors[i][1]*255},{colors[i][2]*255},0.4)'
+
+        if envelope_view:
+            upper_bound = df[curve_name] + current_offset
+            lower_bound = -df[curve_name] + current_offset
+            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=upper_bound, mode='lines', line=dict(width=0.5, color=color_rgba.replace('0.4','1')), showlegend=False, hoverinfo='none'), secondary_y=True)
+            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=lower_bound, mode='lines', line=dict(width=0.5, color=color_rgba.replace('0.4','1')), fill='tonexty', fillcolor=color_rgba, name=label_name, hoverinfo='none'), secondary_y=True)
+        else:
+            vibration_data = df[curve_name] + current_offset
+            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=vibration_data, name=label_name, mode='lines', line=dict(color=color_rgba.replace('0.4','1'))), secondary_y=True)
+
+        anomalies_df = df[df[f'{curve_name}_anom']]
+        if not anomalies_df.empty:
+            anomaly_vibration_data = anomalies_df[curve_name] + current_offset
+            fig.add_trace(go.Scatter(
+                x=anomalies_df['Crank Angle'],
+                y=anomaly_vibration_data,
+                mode='markers',
+                name=f"{label_name} Anomalies",
+                marker=dict(
+                    color=anomalies_df[f'{curve_name}_anom_score'],
+                    colorscale='Reds',
+                    showscale=False
+                ),
+                hoverinfo='text',
+                text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
+                showlegend=False
+            ), secondary_y=True)
+        
+        analysis_id = analysis_ids.get(vc['name'])
+        if analysis_id:
+            try:
+                events_raw = _db_client.execute("SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?", (analysis_id,)).rows
+                events = {etype: angle for etype, angle in events_raw}
+                if 'open' in events and 'close' in events:
+                    fig.add_vrect(x0=events['open'], x1=events['close'], fillcolor=color_rgba.replace('0.4','0.2'), layer="below", line_width=0)
+                for event_type, crank_angle in events.items():
+                    fig.add_vline(x=crank_angle, line_width=2, line_dash="dash", line_color='green' if event_type == 'open' else 'red')
+            except Exception as e:
+                st.warning(f"Could not load valve events for {vc['name']}: {e}")
+        
+        current_offset += vertical_offset
+    
+    fig.update_layout(
+        height=700, 
+        title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}", 
+        xaxis_title="Crank Angle (deg)", 
+        template="ggplot2", 
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+    fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
+    fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
+    
+    return fig, report_data
             except Exception as e:
                 st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
         else:
