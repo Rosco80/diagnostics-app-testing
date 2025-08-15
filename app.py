@@ -712,6 +712,13 @@ if uploaded_files and len(uploaded_files) == 3:
                     
                     # Regenerate plot with correct analysis_ids
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
+                   # Run rule-based diagnostics on the report data
+                    diagnostics = run_rule_based_diagnostics(report_data)
+                    if diagnostics:
+                    st.subheader("🛠 Rule-Based Diagnostics")
+                    for diag in diagnostics:
+                    st.warning(diag)
+
                     st.plotly_chart(fig, use_container_width=True)
 
                     # Display health report
