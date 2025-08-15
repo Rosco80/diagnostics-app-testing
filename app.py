@@ -16,7 +16,7 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
-from sklearn.ensemble import IsolationForest # Add this with your other imports at the top of the file
+from sklearn.ensemble import IsolationForest
 import plotly.express as px
 import math
 
@@ -62,7 +62,40 @@ def init_db():
 
 # --- Helper Functions ---
 
-import plotly.express as px
+def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
+    """
+    Computes cylinder volume for each crank angle.
+    
+    Args:
+        crank_angles: Series or array of crank angles in degrees
+        bore: Cylinder bore diameter in inches
+        stroke: Stroke length in inches  
+        clearance_pct: Clearance volume as percentage of swept volume
+        
+    Returns:
+        Series of volumes in cubic inches, or None if computation fails
+    """
+    try:
+        # Convert to numpy array for calculations
+        angles_rad = np.radians(crank_angles)
+        
+        # Calculate piston position (0 = TDC, stroke = BDC)
+        piston_position = (stroke / 2) * (1 - np.cos(angles_rad))
+        
+        # Swept volume
+        swept_volume = math.pi * (bore / 2) ** 2 * stroke
+        
+        # Clearance volume
+        clearance_volume = swept_volume * (clearance_pct / 100)
+        
+        # Total volume at each crank angle
+        volume = clearance_volume + (math.pi * (bore / 2) ** 2 * piston_position)
+        
+        return pd.Series(volume, index=crank_angles.index if hasattr(crank_angles, 'index') else None)
+        
+    except Exception as e:
+        st.error(f"Volume computation error: {e}")
+        return None
 
 def display_historical_analysis(db_client):
     """
@@ -86,11 +119,8 @@ def display_historical_analysis(db_client):
             st.info("No historical analysis data found to display.")
             return
 
-        # --- THIS IS THE CORRECTED LINE ---
-        # We manually provide the column names instead of reading them from the result object.
+        # Create DataFrame with manual column names
         df = pd.DataFrame(rs.rows, columns=['timestamp', 'machine_id', 'total_anomalies'])
-        # ------------------------------------
-        
         df['timestamp'] = pd.to_datetime(df['timestamp'])
 
         if df.empty:
@@ -116,19 +146,16 @@ def display_historical_analysis(db_client):
 
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
-# The function signature now accepts contamination_level
+
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
     Applies Isolation Forest to detect anomalies and calculate their scores.
-    ...
     """
     for curve in curve_names:
         if curve in df.columns:
             data = df[[curve]].values
-            # Use the new parameter here instead of 'auto'
+            # Use the contamination_level parameter
             model = IsolationForest(contamination=contamination_level, random_state=42)
-            
-            # ... the rest of the function remains the same ...
             
             # Fit the model and get binary predictions (-1 for anomalies)
             predictions = model.fit_predict(data)
@@ -142,6 +169,7 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
             df[f'{curve}_anom_score'] = -1 * anomaly_scores
             
     return df
+
 def run_rule_based_diagnostics(report_data):
     """
     Returns a dict: { item['name'] -> suggested_label_in_FAULT_LABELS }
@@ -273,7 +301,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         bore_values = []
         rod_diameter_values = []
         stroke_values = []
-        num_cols_offset_start = 2  # first cylinder’s value is in column index 2
+        num_cols_offset_start = 2  # first cylinder's value is in column index 2
 
         for cyl_idx in range(num_cylinders):
             bore = find_xml_value(
@@ -377,7 +405,6 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         st.error(f"Error during auto-discovery: {e}")
         return None
 
-
 def generate_health_report_table(_source_xml_content, _levels_xml_content, cylinder_index):
     try:
         source_root = ET.fromstring(_source_xml_content)
@@ -389,7 +416,6 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
             try: return f"{float(kpa_str) * 0.145038:.1f}"
             except (ValueError, TypeError): return kpa_str
 
-        # This is the new helper function from Step 1
         def format_numeric_value(value_str, precision=2):
             if value_str == "N/A" or not value_str: return "N/A"
             try: return f"{float(value_str):.{precision}f}"
@@ -402,21 +428,24 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx + 1)
         rod_diam = find_xml_value(source_root, 'Source', 'PISTON ROD DIAMETER', col_idx + 1)
         
-        # ✅ CHANGED: Extract raw values first
+        # Extract raw values first
         comp_ratio_he_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=2)
         comp_ratio_ce_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=1)
         power_he_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=2)
         power_ce_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=1)
 
-        # ✅ CHANGED: Apply formatting to the extracted values
+        # Apply formatting to the extracted values
         comp_ratio_he = format_numeric_value(comp_ratio_he_raw, precision=2)
         comp_ratio_ce = format_numeric_value(comp_ratio_ce_raw, precision=2)
         power_he = format_numeric_value(power_he_raw, precision=1)
         power_ce = format_numeric_value(power_ce_raw, precision=1)
 
         data = {
-            'Cyl End': [f'{cylinder_index}H', f'{cylinder_index}C'], 'Bore (ins)': [bore] * 2, 'Rod Diam (ins)': ['N/A', rod_diam],
-            'Pressure Ps/Pd (psig)': [f"{suction_p} / {discharge_p}"] * 2, 'Temp Ts/Td (°C)': [f"{suction_temp} / {discharge_temp}"] * 2,
+            'Cyl End': [f'{cylinder_index}H', f'{cylinder_index}C'], 
+            'Bore (ins)': [bore] * 2, 
+            'Rod Diam (ins)': ['N/A', rod_diam],
+            'Pressure Ps/Pd (psig)': [f"{suction_p} / {discharge_p}"] * 2, 
+            'Temp Ts/Td (°C)': [f"{suction_temp} / {discharge_temp}"] * 2,
             'Comp. Ratio': [comp_ratio_he, comp_ratio_ce], 
             'Indicated Power (ihp)': [power_he, power_ce]
         }
@@ -523,7 +552,6 @@ def get_all_cylinder_details(_source_xml_content, _levels_xml_content, num_cylin
         st.warning(f"Could not extract cylinder details: {e}")
         return []
 
-
 def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None):
     if not REPORTLAB_AVAILABLE:
         st.warning("ReportLab not installed. PDF generation unavailable.")
@@ -568,31 +596,41 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
 
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-# --- Helper for P-V computation (MVP sinusoidal approximation) ---
-def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
-    """
-    Returns instantaneous cylinder volume (in^3) at each crank angle.
-
-    Uses:
-    - piston position x(theta) = (stroke/2) * (1 - cos(theta))
-    - swept volume = area * stroke
-    - clearance volume = (clearance% of swept)
-    """
-    if bore_in is None or stroke_in is None:
-        return None  # missing geometry
-
-    area = math.pi * (bore_in / 2.0) ** 2           # in^2
-    theta = np.deg2rad(crank_deg.values)            # radians
-    piston_pos = (stroke_in / 2.0) * (1 - np.cos(theta))  # in
-    swept_vol = area * stroke_in                    # in^3
-    v_min = (clearance_percent / 100.0) * swept_vol # in^3
-    V = v_min + area * piston_pos                   # in^3
-    return V
+    # --- P-V mode ---
+    if view_mode == "P-V":
+        bore = cylinder_config.get("bore")
+        stroke = cylinder_config.get("stroke")
+        can_plot_pv = (
+            (bore is not None) and (stroke is not None) and
+            (pressure_curve is not None) and (pressure_curve in df.columns)
+        )
+        if can_plot_pv:
+            try:
+                V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
+                if V is not None:
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=V, y=df[pressure_curve],
+                        mode="lines", name="Pressure vs Volume"
+                    ))
+                    fig.update_layout(
+                        height=700,
+                        title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
+                        template="ggplot2",
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                    )
+                    fig.update_xaxes(title_text="<b>Volume (in³)</b>")
+                    fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
+                    return fig, report_data
+            except Exception as e:
+                st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
+        else:
+            st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
+        # Fall through to crank-angle mode if P-V fails
     
+    # --- Crank-angle mode (default) ---
     if pressure_curve and pressure_curve in df.columns:
-        # --- FIX #1 IS HERE ---
         anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
-        # ----------------------
         avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
         report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
         fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
@@ -600,9 +638,7 @@ def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
     for vc in valve_curves:
         curve_name = vc['curve']
         if curve_name in df.columns:
-            # --- FIX #2 IS HERE ---
             anomaly_count = int(df[f'{curve_name}_anom'].sum())
-            # ----------------------
             avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
             report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
 
@@ -645,12 +681,15 @@ def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
         
         analysis_id = analysis_ids.get(vc['name'])
         if analysis_id:
-            events_raw = _db_client.execute("SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?", (analysis_id,)).rows
-            events = {etype: angle for etype, angle in events_raw}
-            if 'open' in events and 'close' in events:
-                fig.add_vrect(x0=events['open'], x1=events['close'], fillcolor=color_rgba.replace('0.4','0.2'), layer="below", line_width=0)
-            for event_type, crank_angle in events.items():
-                fig.add_vline(x=crank_angle, line_width=2, line_dash="dash", line_color='green' if event_type == 'open' else 'red')
+            try:
+                events_raw = _db_client.execute("SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?", (analysis_id,)).rows
+                events = {etype: angle for etype, angle in events_raw}
+                if 'open' in events and 'close' in events:
+                    fig.add_vrect(x0=events['open'], x1=events['close'], fillcolor=color_rgba.replace('0.4','0.2'), layer="below", line_width=0)
+                for event_type, crank_angle in events.items():
+                    fig.add_vline(x=crank_angle, line_width=2, line_dash="dash", line_color='green' if event_type == 'open' else 'red')
+            except Exception as e:
+                st.warning(f"Could not load valve events for {vc['name']}: {e}")
         
         current_offset += vertical_offset
     
@@ -665,8 +704,6 @@ def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
     
     return fig, report_data
-    # --- END OF FULLY CORRECTED FUNCTION ---
-    # --- END OF CORRECTED FUNCTION ---
 
 # --- Main Application ---
 db_client = init_db()
@@ -731,7 +768,7 @@ if uploaded_files and len(uploaded_files) == 3:
 
                if selected_cylinder_config:
                     # Generate plot and initial data
-                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level)
+                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct)
                    
                     # Create or update analysis records in DB
                     analysis_ids = {}
@@ -747,16 +784,16 @@ if uploaded_files and len(uploaded_files) == 3:
                         analysis_ids[item['name']] = analysis_id
                     
                     # Regenerate plot with correct analysis_ids
-                    fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
-                   # Run rule-based diagnostics on the report data
-                   # Get a dictionary of suggested labels keyed by the report item name
+                    fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct)
+                   
+                    # Run rule-based diagnostics on the report data
                     suggestions = run_rule_based_diagnostics(report_data)
                     if suggestions:
                         st.subheader("🛠 Rule‑Based Diagnostics")
                         for name, suggestion in suggestions.items():
                             st.warning(f"{name}: {suggestion}")
 
-                   # Compute and display a health score
+                    # Compute and display a health score
                     health_score = compute_health_score(report_data, suggestions)
                     st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
@@ -804,7 +841,6 @@ if uploaded_files and len(uploaded_files) == 3:
                                             )
                                             st.success(f"Label '{final_label}' saved for {item['name']}.")
 
-                        
                         st.subheader("Mark Valve Open/Close Events")
                         for item in report_data:
                             if item['name'] != 'Pressure':
@@ -828,7 +864,7 @@ if uploaded_files and len(uploaded_files) == 3:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
 
                     st.markdown("---")
-                    # 🆕 Machine Info Block
+                    # Machine Info Block
                     cfg = st.session_state.get('auto_discover_config', {})
                     st.markdown(f"""
                     <div style='border:1px solid #ddd;border-radius:6px;padding:10px;margin:8px 0;'>
@@ -860,28 +896,22 @@ if uploaded_files and len(uploaded_files) == 3:
 
             else:
                 st.error("Could not discover a valid machine configuration.")
-        # ... previous code for file processing ...
+        else:
+            st.error("Failed to process curve data.")
     else:
-        st.error("Failed to process curve data.")
+        st.error("Please ensure all three XML files (curves, levels, source) are uploaded.")
 else:
     st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
 
-
-# ===================================================================
-# --- THIS IS THE FULL BLOCK FOR THE UI INTEGRATION ---
-
+# Historical Trend Analysis
 st.markdown("---")
 st.header("📈 Historical Trend Analysis")
 display_historical_analysis(db_client)
-
-# ===================================================================
-
 
 # Display All Saved Labels at the bottom
 with st.sidebar:
     st.header("3. View All Saved Labels")
     rs = db_client.execute("SELECT DISTINCT machine_id FROM sessions ORDER BY machine_id ASC")
-    #... rest of your script
     machine_id_options = [row[0] for row in rs.rows]
     selected_machine_id_filter = st.selectbox("Filter labels by Machine ID", options=["All"] + machine_id_options)
 
