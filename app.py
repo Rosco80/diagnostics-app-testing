@@ -752,7 +752,7 @@ if uploaded_files and len(uploaded_files) == 3:
                                 with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
                                     st.write(f"**{item['name']} Anomaly**")
                                     default_label = suggestions.get(item['name'], None)
-                                        if default_label and default_label in FAULT_LABELS:
+                                    if default_label and default_label in FAULT_LABELS:
                                             default_index = FAULT_LABELS.index(default_label)
                                             selected_label = st.selectbox("Select fault label:",
                                             options=FAULT_LABELS,
