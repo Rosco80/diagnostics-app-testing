@@ -25,7 +25,7 @@ st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
 
 # --- Global Configuration & Constants ---
 FAULT_LABELS = [
-    "Valve Leakage", "Valve Wear", "Valve Sticking or Fouling",
+    "Normal", "Valve Leakage", "Valve Wear", "Valve Sticking or Fouling",
     "Valve Impact or Slamming", "Broken or Missing Valve Parts",
     "Valve Misalignment", "Spring Fatigue or Failure", "Other"
 ]
@@ -144,18 +144,16 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
     return df
 def run_rule_based_diagnostics(report_data):
     """
-    Applies simple rule-based logic to the results of anomaly detection.
-    Returns a list of diagnostic messages for the current cylinder.
+    Applies simple rule-based logic and returns a dict mapping report items
+    to a suggested label (or None if no suggestion).
     """
-    diagnostics = []
+    suggestions = {}
     for item in report_data:
-        # Example rule: if more than 10 pressure anomalies, flag possible valve leakage
         if item['name'] == 'Pressure' and item['count'] > 10:
-            diagnostics.append('Possible valve leakage')
-        # Example rule: if vibration anomalies exceed 5, note valve wear
-        if item['name'] != 'Pressure' and item['count'] > 5:
-            diagnostics.append(f'Possible {item["name"]} wear')
-    return diagnostics
+            suggestions[item['name']] = 'Valve Leakage'
+        elif item['name'] != 'Pressure' and item['count'] > 5:
+            suggestions[item['name']] = f'{item["name"]} wear'
+    return suggestions
     
 def compute_health_score(report_data, diagnostics):
     """
@@ -727,11 +725,13 @@ if uploaded_files and len(uploaded_files) == 3:
                     # Regenerate plot with correct analysis_ids
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level)
                    # Run rule-based diagnostics on the report data
-                    diagnostics = run_rule_based_diagnostics(report_data)
-                    if diagnostics:
-                        st.subheader("🛠 Rule-Based Diagnostics")
-                    for diag in diagnostics:
-                        st.warning(diag)
+                   # Get a dictionary of suggested labels keyed by the report item name
+                    suggestions = run_rule_based_diagnostics(report_data)
+                    if suggestions:
+                        st.subheader("🛠 Rule‑Based Diagnostics")
+                            for name, suggestion in suggestions.items():
+                            st.warning(f"{name}: {suggestion}")
+
                    # Compute and display a health score
                     health_score = compute_health_score(report_data, diagnostics)
                     st.metric("Health Score", f"{health_score:.1f}")
@@ -751,7 +751,18 @@ if uploaded_files and len(uploaded_files) == 3:
                             if item['count'] > 0 and item['name'] != 'Pressure':
                                 with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
                                     st.write(f"**{item['name']} Anomaly**")
-                                    selected_label = st.selectbox("Select fault label:", options=FAULT_LABELS, key=f"sel_{analysis_ids[item['name']]}")
+                                    default_label = suggestions.get(item['name'], None)
+                                        if default_label and default_label in FAULT_LABELS:
+                                            default_index = FAULT_LABELS.index(default_label)
+                                            selected_label = st.selectbox("Select fault label:",
+                                            options=FAULT_LABELS,
+                                            index=default_index,
+                                            key=f"sel_{analysis_ids[item['name']]}")
+                                                else:
+                                                selected_label = st.selectbox("Select fault label:",
+                                                options=FAULT_LABELS,
+                                                key=f"sel_{analysis_ids[item['name']]}")
+
                                     custom_label = st.text_input("Or enter custom label if 'Other':", key=f"txt_{analysis_ids[item['name']]}")
                                     if st.form_submit_button("Save Label"):
                                         final_label = custom_label if selected_label == "Other" and custom_label else selected_label
