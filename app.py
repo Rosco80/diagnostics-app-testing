@@ -166,9 +166,9 @@ def compute_health_score(report_data, diagnostics):
     score = 100
     # Subtract one point per anomaly detected
     for item in report_data:
-        score -= item['count']
+        score -= item['count'] * 0.5
     # Subtract an additional five points per diagnostic rule triggered
-    score -= 5 * len(diagnostics)
+    score -= 2 * len(diagnostics)
     # Keep the score within 0–100
     return max(min(score, 100), 0)
     
