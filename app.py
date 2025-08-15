@@ -715,9 +715,9 @@ if uploaded_files and len(uploaded_files) == 3:
                    # Run rule-based diagnostics on the report data
                     diagnostics = run_rule_based_diagnostics(report_data)
                     if diagnostics:
-                    st.subheader("🛠 Rule-Based Diagnostics")
+                        st.subheader("🛠 Rule-Based Diagnostics")
                     for diag in diagnostics:
-                    st.warning(diag)
+                        st.warning(diag)
 
                     st.plotly_chart(fig, use_container_width=True)
 
