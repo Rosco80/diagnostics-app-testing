@@ -142,6 +142,21 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
             df[f'{curve}_anom_score'] = -1 * anomaly_scores
             
     return df
+def run_rule_based_diagnostics(report_data):
+    """
+    Applies simple rule-based logic to the results of anomaly detection.
+    Returns a list of diagnostic messages for the current cylinder.
+    """
+    diagnostics = []
+    for item in report_data:
+        # Example rule: if more than 10 pressure anomalies, flag possible valve leakage
+        if item['name'] == 'Pressure' and item['count'] > 10:
+            diagnostics.append('Possible valve leakage')
+        # Example rule: if vibration anomalies exceed 5, note valve wear
+        if item['name'] != 'Pressure' and item['count'] > 5:
+            diagnostics.append(f'Possible {item["name"]} wear')
+    return diagnostics
+    
     
 def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
