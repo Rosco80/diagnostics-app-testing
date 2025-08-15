@@ -575,7 +575,7 @@ def compute_volume_series(crank_deg, bore_in, stroke_in, clearance_percent):
      - swept volume = area * stroke
      - clearance volume = (clearance% of swept)
         """
-     if bore_in is None or stroke_in is None:
+    if bore_in is None or stroke_in is None:
         return None  # missing geometry
         area = math.pi * (bore_in / 2.0) ** 2           # in^2
         theta = np.deg2rad(crank_deg.values)            # radians
