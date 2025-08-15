@@ -600,6 +600,10 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     
 # Replace your entire P-V mode section in generate_cylinder_view with this:
 
+    # COMPLETE REPLACEMENT for your P-V mode section
+# Find this in your generate_cylinder_view function and replace EVERYTHING from 
+# "# --- P-V mode ---" until "# --- Crank-angle mode (default) ---"
+
     # --- P-V mode ---
     if view_mode == "P-V":
         bore = cylinder_config.get("bore")
@@ -668,23 +672,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             except Exception as e:
                 st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
         else:
-            st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")    
-    # --- Crank-angle mode (default) ---
-    # [Rest of your existing crank-angle visualization code remains unchanged]
-    if pressure_curve and pressure_curve in df.columns:
-        anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
-        avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
-        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
-        fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
-
-    # [Continue with rest of your existing valve curve plotting code...]
-    
-    return fig, report_data
-    except Exception as e:
-                st.warning(f"P-V diagram computation failed: {e}. Showing crank-angle view.")
-        else:
             st.warning("P-V diagram not available (missing bore/stroke or pressure curve). Showing crank-angle view.")
-        # Fall through to crank-angle mode if P-V fails
     
     # --- Crank-angle mode (default) ---
     if pressure_curve and pressure_curve in df.columns:
