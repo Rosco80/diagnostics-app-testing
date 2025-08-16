@@ -631,29 +631,30 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         ))
                         
                         # Find and mark TDC and BDC points
-                        min_vol_idx = V.values.argmin()
-                        max_vol_idx = V.values.argmax()
+                        # Find and mark TDC and BDC points
+                        min_vol_idx = V.idxmin()  # Use idxmin() instead of values.argmin()
+                        max_vol_idx = V.idxmax()  # Use idxmax() instead of values.argmax()
                         
                         fig.add_trace(go.Scatter(
-                            x=[V.iloc[min_vol_idx]], y=[pressure_data.iloc[min_vol_idx]],
+                            x=[V.loc[min_vol_idx]], y=[pressure_data.loc[min_vol_idx]],
                             mode="markers",
                             marker=dict(size=12, color="red", symbol="circle"),
                             name="TDC (Top Dead Center)"
                         ))
                         
                         fig.add_trace(go.Scatter(
-                            x=[V.iloc[max_vol_idx]], y=[pressure_data.iloc[max_vol_idx]],
+                            x=[V.loc[max_vol_idx]], y=[pressure_data.loc[max_vol_idx]],
                             mode="markers", 
                             marker=dict(size=12, color="blue", symbol="square"),
                             name="BDC (Bottom Dead Center)"
                         ))
                         
                         fig.add_annotation(
-                            x=V.iloc[min_vol_idx], y=pressure_data.iloc[min_vol_idx],
+                            x=V.loc[min_vol_idx], y=pressure_data.loc[min_vol_idx],
                             text="TDC", showarrow=True, arrowhead=2, ax=20, ay=-20
                         )
                         fig.add_annotation(
-                            x=V.iloc[                            max_vol_idx],
+                            x=V.loc[max_vol_idx], y=pressure_data.loc[max_vol_idx],
                             text="BDC", showarrow=True, arrowhead=2, ax=-20, ay=20
                         )
                         
