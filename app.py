@@ -628,7 +628,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                     "<b>Pressure:</b> %{y:.1f} PSI<br>" +
                                     "<extra></extra>"
                     ))
-					try:
+				    try:
                         # Find TDC and BDC points using more robust method
                         min_vol_idx = V[V == V.min()].index[0]
                         max_vol_idx = V[V == V.max()].index[0]
