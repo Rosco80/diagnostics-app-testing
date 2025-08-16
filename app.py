@@ -203,21 +203,15 @@ def extract_preview_info(files_content):
         'file_sizes': {},
         'date_time': 'Unknown'
     }
-    
+# REPLACE the entire section starting from "# Extract info with comprehensive error handling" 
+# down to the end of SOURCE FILE processing with this:
+
     # Extract info with comprehensive error handling
     try:
-        # LEVELS FILE - Machine info and RPM
+        # LEVELS FILE - RPM and date/time (NO machine ID here)
         if 'levels' in files_content:
             try:
                 levels_root = ET.fromstring(files_content['levels'])
-                
-                # Get machine ID safely
-                try:
-                    machine_id = find_xml_value(levels_root, 'Levels', 'Machine', 2)
-                    if machine_id and machine_id not in ['N/A', '', 'Unknown']:
-                        preview_info['machine_id'] = machine_id
-                except:
-                    pass
                 
                 # Get RPM safely
                 try:
@@ -268,10 +262,25 @@ def extract_preview_info(files_content):
             except Exception:
                 preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
         
-        # SOURCE FILE - Estimate cylinder count
+        # SOURCE FILE - Extract machine ID and estimate cylinder count
         if 'source' in files_content:
             try:
                 source_root = ET.fromstring(files_content['source'])
+                
+                # Extract machine ID from source file
+                try:
+                    # Look for machine identification in source file
+                    for elem in source_root.iter():
+                        if hasattr(elem, 'text') and elem.text:
+                            text = str(elem.text).strip()
+                            # Look for patterns like "C402 - C" or similar machine IDs
+                            if ('-' in text and len(text) < 20 and len(text) > 3 and
+                                any(c.isalnum() for c in text) and 
+                                not any(word in text.upper() for word in ['CYLINDER', 'PRESSURE', 'TEMPERATURE', 'VALVE', 'COMPRESSOR'])):
+                                preview_info['machine_id'] = text
+                                break
+                except:
+                    pass
                 
                 # Use auto-discovery to get accurate cylinder count
                 try:
@@ -283,6 +292,9 @@ def extract_preview_info(files_content):
                             discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
                             if discovered_config and 'cylinders' in discovered_config:
                                 preview_info['cylinder_count'] = len(discovered_config['cylinders'])
+                                # Also get machine ID from auto-discovery if not found above
+                                if preview_info['machine_id'] == 'Unknown' and discovered_config.get('machine_id'):
+                                    preview_info['machine_id'] = discovered_config['machine_id']
                 except:
                     # Fallback: simple bore counting
                     try:
@@ -455,20 +467,22 @@ def enhanced_file_upload_section():
                         st.error(f"• Error: {info['error']}")
                 st.markdown("---")
         
-        # Proceed button with better styling
+        # Proceed button with better styling - IMPROVED LAYOUT
         st.markdown("---")
-        proceed_col1, proceed_col2 = st.columns([3, 1])
-        with proceed_col2:
+        
+        # Show warnings/status message first
+        if warnings:
+            st.warning("⚠️ **You can proceed, but please check the warnings above**")
+        else:
+            st.success("✅ **Data looks good! Ready to analyze**")
+        
+        # Button below the message for better clarity
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
             if st.button("🚀 Start Analysis", type="primary", use_container_width=True):
                 st.session_state['validated_files'] = files_content
                 st.balloons()  # Celebration effect
                 return files_content
-        
-        with proceed_col1:
-            if warnings:
-                st.info("⚠️ You can proceed, but check the warnings above")
-            else:
-                st.success("✅ Data looks good! Ready to analyze")
         
         return None
     
