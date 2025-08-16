@@ -97,9 +97,6 @@ def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
         st.warning(f"Volume computation error: {e}")
         return pd.Series([], dtype=float)
         
-        else:
-            return pd.Series(instantaneous_volume)
-        
     except Exception as e:
         st.error(f"Volume computation error: {e}")
         return None
