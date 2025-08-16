@@ -1026,8 +1026,7 @@ with st.sidebar:
         show_pv_overlay = st.checkbox("🔄 Show P-V Overlay", value=False, help="Show P-V diagram as overlay on crank-angle view")
     
     clearance_pct = st.number_input("Clearance (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5, help="Estimated clearance volume as % of swept volume (MVP approximation).")
-    clearance_pct = st.number_input("Clearance (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5, help="Estimated clearance volume as % of swept volume (MVP approximation).")
-    
+        
     st.markdown("---")
     st.subheader("AI Model Tuning")
     contamination_level = st.slider(
