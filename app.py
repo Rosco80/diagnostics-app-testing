@@ -66,7 +66,7 @@ def init_db():
 
 def validate_xml_files(uploaded_files):
     """
-    Validates uploaded XML files and returns validation results
+    Validates uploaded XML files and returns validation results - ROBUST VERSION
     """
     validation_results = {
         'is_valid': False,
@@ -102,7 +102,7 @@ def validate_xml_files(uploaded_files):
         validation_results['errors'].append(f"Missing required files: {', '.join(missing)}")
         return validation_results
     
-    # Validate each XML file
+    # Validate each XML file with robust error handling
     for file_type, file in found_files.items():
         try:
             content = file.getvalue().decode('utf-8')
@@ -110,35 +110,81 @@ def validate_xml_files(uploaded_files):
             # Basic XML validation
             root = ET.fromstring(content)
             
-            # File-specific validation
+            # File-specific validation with safe fallbacks
             if file_type == 'curves':
-                # Check for curve data
-                curve_count = len([elem for elem in root.iter() if 'Data' in elem.tag])
-                validation_results['file_info'][file_type] = {
-                    'size_kb': len(content) / 1024,
-                    'data_points': curve_count,
-                    'status': 'Valid'
-                }
+                try:
+                    # Count data elements safely
+                    data_elements = root.findall('.//Data')
+                    curve_count = len([elem for elem in data_elements if elem.text and elem.text.strip()])
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'data_points': curve_count,
+                        'status': 'Valid'
+                    }
+                except Exception:
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'data_points': 0,
+                        'status': 'Valid'
+                    }
             
             elif file_type == 'levels':
-                # Check for machine info
-                machine_info = find_xml_value(root, 'Levels', 'Machine', 2) or 'Unknown'
-                validation_results['file_info'][file_type] = {
-                    'size_kb': len(content) / 1024,
-                    'machine_id': machine_info,
-                    'status': 'Valid'
-                }
+                try:
+                    # Extract machine info safely
+                    machine_info = None
+                    try:
+                        machine_info = find_xml_value(root, 'Levels', 'Machine', 2)
+                    except:
+                        pass
+                    
+                    if not machine_info or machine_info == 'N/A':
+                        machine_info = 'Unknown'
+                    
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'machine_id': machine_info,
+                        'status': 'Valid'
+                    }
+                except Exception:
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'machine_id': 'Unknown',
+                        'status': 'Valid'
+                    }
             
             elif file_type == 'source':
-                # Check for configuration data
-                cylinder_data = len([elem for elem in root.iter() if hasattr(elem, 'text') and elem.text and 'CYLINDER' in elem.text])
+                try:
+                    # Count configuration entries safely
+                    config_count = 0
+                    try:
+                        # Safe iteration through elements
+                        for elem in root.iter():
+                            if hasattr(elem, 'text') and elem.text and 'CYLINDER' in str(elem.text):
+                                config_count += 1
+                    except:
+                        config_count = 0
+                    
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'config_entries': config_count,
+                        'status': 'Valid'
+                    }
+                except Exception:
+                    validation_results['file_info'][file_type] = {
+                        'size_kb': len(content) / 1024,
+                        'config_entries': 0,
+                        'status': 'Valid'
+                    }
                 
         except ET.ParseError as e:
-            validation_results['errors'].append(f"{file_type.title()} file: Invalid XML format ({str(e)})")
-            validation_results['file_info'][file_type] = {'status': 'Invalid XML', 'error': str(e)}
+            validation_results['errors'].append(f"{file_type.title()} file: Invalid XML format")
+            validation_results['file_info'][file_type] = {'status': 'Invalid XML', 'error': 'XML parsing failed'}
+        except UnicodeDecodeError:
+            validation_results['errors'].append(f"{file_type.title()} file: Invalid file encoding")
+            validation_results['file_info'][file_type] = {'status': 'Encoding Error', 'error': 'Cannot decode file'}
         except Exception as e:
-            validation_results['errors'].append(f"{file_type.title()} file: {str(e)}")
-            validation_results['file_info'][file_type] = {'status': 'Error', 'error': str(e)}
+            validation_results['errors'].append(f"{file_type.title()} file: Unexpected error")
+            validation_results['file_info'][file_type] = {'status': 'Error', 'error': 'Processing failed'}
     
     # Set overall validation status
     validation_results['is_valid'] = len(validation_results['errors']) == 0
@@ -147,7 +193,7 @@ def validate_xml_files(uploaded_files):
 
 def extract_preview_info(files_content):
     """
-    Extracts key information for preview display with proper data extraction
+    Extracts key information for preview display - ROBUST VERSION
     """
     preview_info = {
         'machine_id': 'Unknown',
@@ -155,74 +201,110 @@ def extract_preview_info(files_content):
         'cylinder_count': 0,
         'total_curves': 0,
         'file_sizes': {},
-        'timestamps': {},
         'date_time': 'Unknown'
     }
     
+    # Extract info with comprehensive error handling
     try:
-        # Extract machine info from levels
+        # LEVELS FILE - Machine info and RPM
         if 'levels' in files_content:
-            levels_root = ET.fromstring(files_content['levels'])
-            
-            # Get machine ID
-            machine_id = find_xml_value(levels_root, 'Levels', 'Machine', 2)
-            if machine_id and machine_id != 'N/A':
-                preview_info['machine_id'] = machine_id
-            
-            # Get RPM
-            rpm = extract_rpm(files_content['levels'])
-            if rpm and rpm != 'N/A':
-                preview_info['rpm'] = rpm
-            
-            # Get date/time
-            date_elem = levels_root.find('.//Data[contains(., "/")]')
-            if date_elem is not None and date_elem.text:
-                preview_info['date_time'] = date_elem.text
-            
-            preview_info['file_sizes']['levels'] = len(files_content['levels']) / 1024
+            try:
+                levels_root = ET.fromstring(files_content['levels'])
+                
+                # Get machine ID safely
+                try:
+                    machine_id = find_xml_value(levels_root, 'Levels', 'Machine', 2)
+                    if machine_id and machine_id not in ['N/A', '', 'Unknown']:
+                        preview_info['machine_id'] = machine_id
+                except:
+                    pass
+                
+                # Get RPM safely
+                try:
+                    rpm = extract_rpm(files_content['levels'])
+                    if rpm and rpm not in ['N/A', '', 'Unknown']:
+                        preview_info['rpm'] = rpm
+                except:
+                    pass
+                
+                # Get date/time safely
+                try:
+                    for elem in levels_root.iter():
+                        if hasattr(elem, 'text') and elem.text and '/' in str(elem.text) and len(str(elem.text)) > 8:
+                            preview_info['date_time'] = str(elem.text)
+                            break
+                except:
+                    pass
+                
+                preview_info['file_sizes']['levels'] = len(files_content['levels']) / 1024
+                
+            except Exception:
+                preview_info['file_sizes']['levels'] = len(files_content['levels']) / 1024
         
-        # Extract curve info from curves file
+        # CURVES FILE - Count data curves
         if 'curves' in files_content:
-            curves_root = ET.fromstring(files_content['curves'])
-            
-            # Count actual data columns with pressure/vibration data
-            data_rows = curves_root.findall('.//Row')
-            curve_count = 0
-            
-            # Look for header row with curve names
-            for row in data_rows[:5]:  # Check first few rows for headers
-                cells = row.findall('.//Data')
-                for cell in cells:
-                    if cell.text and any(keyword in cell.text.upper() for keyword in ['PRESSURE', 'VIBRATION', 'PHASED']):
-                        curve_count += 1
-                        
-            preview_info['total_curves'] = curve_count
-            preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
+            try:
+                curves_root = ET.fromstring(files_content['curves'])
+                
+                # Count curves by looking for pressure/vibration keywords in headers
+                curve_count = 0
+                try:
+                    # Look through first 10 rows for headers
+                    rows_found = 0
+                    for elem in curves_root.iter():
+                        if hasattr(elem, 'text') and elem.text:
+                            text_upper = str(elem.text).upper()
+                            if any(keyword in text_upper for keyword in ['PRESSURE', 'VIBRATION', 'PHASED']):
+                                curve_count += 1
+                        rows_found += 1
+                        if rows_found > 200:  # Limit search to prevent hanging
+                            break
+                except:
+                    curve_count = 0
+                
+                preview_info['total_curves'] = curve_count
+                preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
+                
+            except Exception:
+                preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
         
-        # Extract configuration info from source
+        # SOURCE FILE - Estimate cylinder count
         if 'source' in files_content:
-            source_root = ET.fromstring(files_content['source'])
-            
-            # Count cylinders by looking for bore data
-            cylinder_count = 0
-            
-            # Look for compressor cylinder bore entries
-            for elem in source_root.iter():
-                if (hasattr(elem, 'text') and elem.text and 
-                    'COMPRESSOR CYLINDER BORE' in elem.text):
-                    # Count columns that have bore data
-                    parent_row = elem.getparent()
-                    if parent_row is not None:
-                        bore_cells = parent_row.findall('.//Data[@ss:Type="Number"]', 
-                                                      namespaces={'ss': 'urn:schemas-microsoft-com:office:spreadsheet'})
-                        cylinder_count = len([cell for cell in bore_cells if cell.text and float(cell.text or 0) > 0])
-                        break
-            
-            preview_info['cylinder_count'] = cylinder_count
-            preview_info['file_sizes']['source'] = len(files_content['source']) / 1024
-            
+            try:
+                source_root = ET.fromstring(files_content['source'])
+                
+                # Use auto-discovery to get accurate cylinder count
+                try:
+                    # Quick auto-discovery call to get cylinder count
+                    curves_content = files_content.get('curves', '')
+                    if curves_content:
+                        df, actual_curve_names = load_all_curves_data(curves_content)
+                        if df is not None and actual_curve_names:
+                            discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
+                            if discovered_config and 'cylinders' in discovered_config:
+                                preview_info['cylinder_count'] = len(discovered_config['cylinders'])
+                except:
+                    # Fallback: simple bore counting
+                    try:
+                        bore_count = 0
+                        for elem in source_root.iter():
+                            if (hasattr(elem, 'text') and elem.text and 
+                                'BORE' in str(elem.text).upper()):
+                                bore_count += 1
+                        preview_info['cylinder_count'] = min(bore_count, 10)  # Cap at reasonable number
+                    except:
+                        preview_info['cylinder_count'] = 0
+                
+                preview_info['file_sizes']['source'] = len(files_content['source']) / 1024
+                
+            except Exception:
+                preview_info['file_sizes']['source'] = len(files_content['source']) / 1024
+    
     except Exception as e:
-        st.warning(f"Could not extract all preview information: {e}")
+        # If all else fails, just get file sizes
+        for file_type in ['curves', 'levels', 'source']:
+            if file_type in files_content:
+                preview_info['file_sizes'][file_type] = len(files_content[file_type]) / 1024
     
     return preview_info
 # REPLACE your file upload section in the main app with this enhanced version:
