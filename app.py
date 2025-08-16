@@ -147,7 +147,7 @@ def validate_xml_files(uploaded_files):
 
 def extract_preview_info(files_content):
     """
-    Extracts key information for preview display
+    Extracts key information for preview display with proper data extraction
     """
     preview_info = {
         'machine_id': 'Unknown',
@@ -155,38 +155,76 @@ def extract_preview_info(files_content):
         'cylinder_count': 0,
         'total_curves': 0,
         'file_sizes': {},
-        'timestamps': {}
+        'timestamps': {},
+        'date_time': 'Unknown'
     }
     
     try:
         # Extract machine info from levels
         if 'levels' in files_content:
             levels_root = ET.fromstring(files_content['levels'])
-            preview_info['machine_id'] = find_xml_value(levels_root, 'Levels', 'Machine', 2) or 'Unknown'
-            preview_info['rpm'] = extract_rpm(files_content['levels'])
-            preview_info['file_sizes']['levels'] = f"{len(files_content['levels'])/1024:.1f} KB"
+            
+            # Get machine ID
+            machine_id = find_xml_value(levels_root, 'Levels', 'Machine', 2)
+            if machine_id and machine_id != 'N/A':
+                preview_info['machine_id'] = machine_id
+            
+            # Get RPM
+            rpm = extract_rpm(files_content['levels'])
+            if rpm and rpm != 'N/A':
+                preview_info['rpm'] = rpm
+            
+            # Get date/time
+            date_elem = levels_root.find('.//Data[contains(., "/")]')
+            if date_elem is not None and date_elem.text:
+                preview_info['date_time'] = date_elem.text
+            
+            preview_info['file_sizes']['levels'] = len(files_content['levels']) / 1024
         
-        # Extract curve info
+        # Extract curve info from curves file
         if 'curves' in files_content:
             curves_root = ET.fromstring(files_content['curves'])
-            # Count data points
-            data_elements = curves_root.findall('.//Data')
-            preview_info['total_curves'] = len([elem for elem in data_elements if elem.text and elem.text.strip()])
-            preview_info['file_sizes']['curves'] = f"{len(files_content['curves'])/1024:.1f} KB"
+            
+            # Count actual data columns with pressure/vibration data
+            data_rows = curves_root.findall('.//Row')
+            curve_count = 0
+            
+            # Look for header row with curve names
+            for row in data_rows[:5]:  # Check first few rows for headers
+                cells = row.findall('.//Data')
+                for cell in cells:
+                    if cell.text and any(keyword in cell.text.upper() for keyword in ['PRESSURE', 'VIBRATION', 'PHASED']):
+                        curve_count += 1
+                        
+            preview_info['total_curves'] = curve_count
+            preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
         
-        # Extract configuration info
+        # Extract configuration info from source
         if 'source' in files_content:
             source_root = ET.fromstring(files_content['source'])
-            # Estimate cylinder count
-            cylinder_refs = [elem for elem in source_root.iter() if hasattr(elem, 'text') and elem.text and 'CYLINDER' in elem.text]
-            preview_info['cylinder_count'] = len(set([elem.text for elem in cylinder_refs if elem.text]))
-            preview_info['file_sizes']['source'] = f"{len(files_content['source'])/1024:.1f} KB"
+            
+            # Count cylinders by looking for bore data
+            cylinder_count = 0
+            
+            # Look for compressor cylinder bore entries
+            for elem in source_root.iter():
+                if (hasattr(elem, 'text') and elem.text and 
+                    'COMPRESSOR CYLINDER BORE' in elem.text):
+                    # Count columns that have bore data
+                    parent_row = elem.getparent()
+                    if parent_row is not None:
+                        bore_cells = parent_row.findall('.//Data[@ss:Type="Number"]', 
+                                                      namespaces={'ss': 'urn:schemas-microsoft-com:office:spreadsheet'})
+                        cylinder_count = len([cell for cell in bore_cells if cell.text and float(cell.text or 0) > 0])
+                        break
+            
+            preview_info['cylinder_count'] = cylinder_count
+            preview_info['file_sizes']['source'] = len(files_content['source']) / 1024
             
     except Exception as e:
         st.warning(f"Could not extract all preview information: {e}")
     
     return preview_info
-
 # REPLACE your file upload section in the main app with this enhanced version:
 
 def enhanced_file_upload_section():
@@ -266,55 +304,91 @@ def enhanced_file_upload_section():
         # Display validation success and preview
         st.success("✅ All files validated successfully!")
         
-        # Preview Box
-        st.subheader("📋 Data Preview")
+        # Preview Box with better UI
+        st.markdown("### 📋 Data Preview")
         
-        col1, col2, col3 = st.columns(3)
+        # Main metrics in a clean layout
+        col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Machine ID", preview_info['machine_id'])
-            st.metric("RPM", preview_info['rpm'])
+            st.markdown(f"""
+            **🏭 Machine Information:**
+            - **ID:** {preview_info['machine_id']}
+            - **RPM:** {preview_info['rpm']}
+            - **Date:** {preview_info['date_time']}
+            """)
         
         with col2:
-            st.metric("Cylinders", preview_info['cylinder_count'])
-            st.metric("Data Curves", preview_info['total_curves'])
+            st.markdown(f"""
+            **📊 Data Summary:**
+            - **Cylinders:** {preview_info['cylinder_count']}
+            - **Data Curves:** {preview_info['total_curves']}
+            - **Total Size:** {sum(preview_info['file_sizes'].values()):.1f} KB
+            """)
         
-        with col3:
-            st.write("**File Sizes:**")
-            for file_type, size in preview_info['file_sizes'].items():
-                st.write(f"• {file_type.title()}: {size}")
+        # File details in a compact format
+        st.markdown("**📁 File Details:**")
+        file_details = []
+        for file_type, size_kb in preview_info['file_sizes'].items():
+            status = "✅" if size_kb > 0 else "⚠️"
+            file_details.append(f"{status} **{file_type.title()}:** {size_kb:.1f} KB")
         
-        # File details expander
-        with st.expander("🔍 Detailed File Information"):
+        st.markdown(" | ".join(file_details))
+        
+        # Show any data quality warnings
+        warnings = []
+        if preview_info['machine_id'] == 'Unknown':
+            warnings.append("⚠️ Machine ID not detected")
+        if preview_info['cylinder_count'] == 0:
+            warnings.append("⚠️ No cylinders detected")
+        if preview_info['total_curves'] == 0:
+            warnings.append("⚠️ No data curves detected")
+            
+        if warnings:
+            st.warning("**Data Quality Warnings:**\n" + "\n".join(warnings))
+        
+        # Detailed file information in expander (keep existing)
+        with st.expander("🔍 Detailed Technical Information"):
             for file_type, info in validation_results['file_info'].items():
-                st.write(f"**{file_type.title()} File:**")
+                st.markdown(f"**{file_type.title()} File Analysis:**")
                 if info['status'] == 'Valid':
                     if file_type == 'curves':
-                        st.write(f"• Status: ✅ {info['status']}")
-                        st.write(f"• Size: {info['size_kb']:.1f} KB")
-                        st.write(f"• Data points: {info['data_points']}")
+                        st.write(f"• Status: ✅ Valid XML structure")
+                        st.write(f"• File size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Data elements: {info['data_points']}")
+                        st.write(f"• Detected curves: {preview_info['total_curves']}")
                     elif file_type == 'levels':
-                        st.write(f"• Status: ✅ {info['status']}")
-                        st.write(f"• Size: {info['size_kb']:.1f} KB")
-                        st.write(f"• Machine: {info['machine_id']}")
+                        st.write(f"• Status: ✅ Valid XML structure")
+                        st.write(f"• File size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Machine ID: {preview_info['machine_id']}")
+                        st.write(f"• Recording date: {preview_info['date_time']}")
                     elif file_type == 'source':
-                        st.write(f"• Status: ✅ {info['status']}")
-                        st.write(f"• Size: {info['size_kb']:.1f} KB")
-                        st.write(f"• Config entries: {info['config_entries']}")
+                        st.write(f"• Status: ✅ Valid XML structure")
+                        st.write(f"• File size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Configuration entries: {info['config_entries']}")
+                        st.write(f"• Detected cylinders: {preview_info['cylinder_count']}")
                 else:
-                    st.write(f"• Status: ❌ {info['status']}")
+                    st.error(f"• Status: ❌ {info['status']}")
                     if 'error' in info:
-                        st.write(f"• Error: {info['error']}")
-                st.write("---")
+                        st.error(f"• Error: {info['error']}")
+                st.markdown("---")
         
-        # Proceed button
-        if st.button("🚀 Proceed with Analysis", type="primary"):
-            st.session_state['validated_files'] = files_content
-            st.success("📊 Starting analysis with validated data...")
-            return files_content
-        else:
-            st.info("👆 Click 'Proceed with Analysis' when ready to start")
-            return None
+        # Proceed button with better styling
+        st.markdown("---")
+        proceed_col1, proceed_col2 = st.columns([3, 1])
+        with proceed_col2:
+            if st.button("🚀 Start Analysis", type="primary", use_container_width=True):
+                st.session_state['validated_files'] = files_content
+                st.balloons()  # Celebration effect
+                return files_content
+        
+        with proceed_col1:
+            if warnings:
+                st.info("⚠️ You can proceed, but check the warnings above")
+            else:
+                st.success("✅ Data looks good! Ready to analyze")
+        
+        return None
     
     else:
         st.info("👆 Please upload your 3 XML files to begin")
