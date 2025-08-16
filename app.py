@@ -607,7 +607,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             (bore is not None) and (stroke is not None) and
             (pressure_curve is not None) and (pressure_curve in df.columns)
         )
-	if can_plot_pv:
+    if can_plot_pv:
         try:
             V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
         
