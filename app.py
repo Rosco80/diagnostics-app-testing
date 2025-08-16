@@ -588,9 +588,20 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     return buffer
 
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False):
+    """
+    Generates cylinder view plots with pressure and valve vibration data.
+    """
     pressure_curve = cylinder_config.get('pressure_curve')
     valve_curves = cylinder_config.get('valve_vibration_curves', [])
     report_data = []
+    
+    # Initialize variables needed for P-V calculations
+    bore = cylinder_config.get("bore")
+    stroke = cylinder_config.get("stroke")
+    can_plot_pv = (
+        (bore is not None) and (stroke is not None) and
+        (pressure_curve is not None) and (pressure_curve in df.columns)
+    )
 
     curves_to_analyze = [vc['curve'] for vc in valve_curves if vc['curve'] in df.columns]
     if pressure_curve and pressure_curve in df.columns:
@@ -600,123 +611,152 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
 
     # --- P-V mode (standalone) ---
     if view_mode == "P-V" and not show_pv_overlay:
-        bore = cylinder_config.get("bore")
-        stroke = cylinder_config.get("stroke")
+        if can_plot_pv:
+            try:
+                V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
         
-        can_plot_pv = (
-            (bore is not None) and (stroke is not None) and
-            (pressure_curve is not None) and (pressure_curve in df.columns)
-        )
-    if can_plot_pv:
-        try:
-            V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
-        
-            if V is not None and len(V) > 0:
-                pressure_data = df[pressure_curve]
+                if V is not None and len(V) > 0:
+                    pressure_data = df[pressure_curve]
             
-                if len(V) == len(pressure_data):
-                    fig = go.Figure()
+                    if len(V) == len(pressure_data):
+                        fig = go.Figure()
                 
-                    # Add the P-V cycle
-                    fig.add_trace(go.Scatter(
-                        x=V, y=pressure_data,
-                        mode="lines+markers",
-                        line=dict(width=2),
-                        marker=dict(size=2),
-                        name="P-V Cycle",
-                        hovertemplate="<b>Volume:</b> %{x:.1f} in³<br>" +
-                                    "<b>Pressure:</b> %{y:.1f} PSI<br>" +
-                                    "<extra></extra>"
-                    ))
-                    try:
-                        # Find TDC and BDC points using more robust method
-                        min_vol_idx = V[V == V.min()].index[0]
-                        max_vol_idx = V[V == V.max()].index[0]
-                    
-                        # Get the values using the found indices
-                        min_vol = V.iloc[min_vol_idx]
-                        max_vol = V.iloc[max_vol_idx]
-                        min_pressure = pressure_data.iloc[min_vol_idx]
-                        max_pressure = pressure_data.iloc[max_vol_idx]
-                    
-                        # Add TDC point (minimum volume)
+                        # Add the P-V cycle
                         fig.add_trace(go.Scatter(
-                            x=[min_vol], y=[min_pressure],
-                            mode="markers",
-                            marker=dict(size=12, color="red", symbol="circle"),
-                            name="TDC (Top Dead Center)"
+                            x=V, y=pressure_data,
+                            mode="lines+markers",
+                            line=dict(width=2),
+                            marker=dict(size=2),
+                            name="P-V Cycle",
+                            hovertemplate="<b>Volume:</b> %{x:.1f} in³<br>" +
+                                        "<b>Pressure:</b> %{y:.1f} PSI<br>" +
+                                        "<extra></extra>"
                         ))
+                        try:
+                            # Find TDC and BDC points using more robust method
+                            min_vol_idx = V[V == V.min()].index[0]
+                            max_vol_idx = V[V == V.max()].index[0]
                     
-                        # Add BDC point (maximum volume)
-                        fig.add_trace(go.Scatter(
-                            x=[max_vol], y=[max_pressure],
-                            mode="markers", 
-                            marker=dict(size=12, color="blue", symbol="square"),
-                            name="BDC (Bottom Dead Center)"
-                        ))
+                            # Get the values using the found indices
+                            min_vol = V.iloc[min_vol_idx]
+                            max_vol = V.iloc[max_vol_idx]
+                            min_pressure = pressure_data.iloc[min_vol_idx]
+                            max_pressure = pressure_data.iloc[max_vol_idx]
                     
-                        # Add annotations
-                        fig.add_annotation(
-                            x=min_vol, y=min_pressure,
-                            text="TDC", showarrow=True, arrowhead=2, ax=20, ay=-20
+                            # Add TDC point (minimum volume)
+                            fig.add_trace(go.Scatter(
+                                x=[min_vol], y=[min_pressure],
+                                mode="markers",
+                                marker=dict(size=12, color="red", symbol="circle"),
+                                name="TDC (Top Dead Center)"
+                            ))
+                    
+                            # Add BDC point (maximum volume)
+                            fig.add_trace(go.Scatter(
+                                x=[max_vol], y=[max_pressure],
+                                mode="markers", 
+                                marker=dict(size=12, color="blue", symbol="square"),
+                                name="BDC (Bottom Dead Center)"
+                            ))
+                    
+                            # Add annotations
+                            fig.add_annotation(
+                                x=min_vol, y=min_pressure,
+                                text="TDC", showarrow=True, arrowhead=2, ax=20, ay=-20
+                            )
+                            fig.add_annotation(
+                                x=max_vol, y=max_pressure,
+                                text="BDC", showarrow=True, arrowhead=2, ax=-20, ay=20
+                            )
+                    
+                            # Debug info
+                            st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSI), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSI)")
+                    
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
+                            st.error(f"Debug info: min_vol_idx={min_vol_idx if 'min_vol_idx' in locals() else 'N/A'}, max_vol_idx={max_vol_idx if 'max_vol_idx' in locals() else 'N/A'}")
+                
+                        fig.update_layout(
+                            height=700,
+                            title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
+                            template="plotly_white",
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                            showlegend=True
                         )
-                        fig.add_annotation(
-                            x=max_vol, y=max_pressure,
-                            text="BDC", showarrow=True, arrowhead=2, ax=-20, ay=20
-                        )
-                    
-                        # Debug info
-                        st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSI), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSI)")
-					
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
-                        st.error(f"Debug info: min_vol_idx={min_vol_idx if 'min_vol_idx' in locals() else 'N/A'}, max_vol_idx={max_vol_idx if 'max_vol_idx' in locals() else 'N/A'}")
+                        fig.update_xaxes(title_text="<b>Volume (in³)</b>")
+                        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
                 
-                    fig.update_layout(
-                        height=700,
-                        title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
-                        template="plotly_white",
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        showlegend=True
-                    )
-                    fig.update_xaxes(title_text="<b>Volume (in³)</b>")
-                    fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
+                        # Add pressure data to report_data
+                        if pressure_curve in df.columns:
+                            anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
+                            avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
+                            report_data.append({
+                                "name": "Pressure",
+                                "curve_name": pressure_curve,
+                                "threshold": avg_score,
+                                "count": anomaly_count,
+                                "unit": "PSI"
+                            })
                 
-                    # Add pressure data to report_data
-                    if pressure_curve in df.columns:
-                        anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
-                        avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
-                        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
-                
-                    return fig, report_data
+                        return fig, report_data
+                    else:
+                        st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
                 else:
-                    st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
-            else:
-                st.warning("Failed to compute volume data")
+                    st.warning("Failed to compute volume data")
             
-        except Exception as e:
-            st.warning(f"P-V diagram computation failed: {e}")
-    else:
-        st.warning("P-V diagram not available (missing bore/stroke or pressure curve)")
-    
-	# --- Crank-angle mode OR Dual view mode ---
+            except Exception as e:
+                st.warning(f"P-V diagram computation failed: {e}")
+        else:
+            missing = []
+            if bore is None:
+                missing.append("bore dimension")
+            if stroke is None:
+                missing.append("stroke dimension")
+            if pressure_curve is None or pressure_curve not in df.columns:
+                missing.append("pressure curve")
+            st.warning(f"P-V diagram not available - missing: {', '.join(missing)}")
+            
+        # Return empty figure and report data if P-V plot fails
+        if 'fig' not in locals():
+            fig = go.Figure()
+            fig.update_layout(
+                height=700,
+                title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')} (Error)",
+                template="plotly_white"
+            )
+            fig.add_annotation(
+                text="Unable to generate P-V diagram",
+                xref="paper", yref="paper",
+                x=0.5, y=0.5,
+                showarrow=False
+            )
+        return fig, report_data
+
+    # --- Crank-angle mode OR Dual view mode ---
     fig = make_subplots(specs=[[{"secondary_y": True}]])
     
     # Add pressure curve to crank-angle plot
     if pressure_curve and pressure_curve in df.columns:
         anomaly_count = int(df[f'{pressure_curve}_anom'].sum())
         avg_score = df.loc[df[f'{pressure_curve}_anom'], f'{pressure_curve}_anom_score'].mean() if anomaly_count > 0 else 0.0
-        report_data.append({"name": "Pressure", "curve_name": pressure_curve, "threshold": avg_score, "count": anomaly_count, "unit": "PSI"})
-        fig.add_trace(go.Scatter(x=df['Crank Angle'], y=df[pressure_curve], name='Pressure (PSI)', line=dict(color='black', width=2)), secondary_y=False)
+        report_data.append({
+            "name": "Pressure",
+            "curve_name": pressure_curve,
+            "threshold": avg_score,
+            "count": anomaly_count,
+            "unit": "PSI"
+        })
+        fig.add_trace(
+            go.Scatter(
+                x=df['Crank Angle'],
+                y=df[pressure_curve],
+                name='Pressure (PSI)',
+                line=dict(color='black', width=2)
+            ),
+            secondary_y=False
+        )
 
     # Add valve vibration curves
-    for vc in valve_curves:
-        curve_name = vc['curve']
-        if curve_name in df.columns:
-            anomaly_count = int(df[f'{curve_name}_anom'].sum())
-            avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
-            report_data.append({"name": vc['name'], "curve_name": curve_name, "threshold": avg_score, "count": anomaly_count, "unit": "G"})
-
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
 
@@ -730,42 +770,102 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         if envelope_view:
             upper_bound = df[curve_name] + current_offset
             lower_bound = -df[curve_name] + current_offset
-            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=upper_bound, mode='lines', line=dict(width=0.5, color=color_rgba.replace('0.4','1')), showlegend=False, hoverinfo='none'), secondary_y=True)
-            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=lower_bound, mode='lines', line=dict(width=0.5, color=color_rgba.replace('0.4','1')), fill='tonexty', fillcolor=color_rgba, name=label_name, hoverinfo='none'), secondary_y=True)
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=upper_bound,
+                    mode='lines',
+                    line=dict(width=0.5, color=color_rgba.replace('0.4','1')),
+                    showlegend=False,
+                    hoverinfo='none'
+                ),
+                secondary_y=True
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=lower_bound,
+                    mode='lines',
+                    line=dict(width=0.5, color=color_rgba.replace('0.4','1')),
+                    fill='tonexty',
+                    fillcolor=color_rgba,
+                    name=label_name,
+                    hoverinfo='none'
+                ),
+                secondary_y=True
+            )
         else:
             vibration_data = df[curve_name] + current_offset
-            fig.add_trace(go.Scatter(x=df['Crank Angle'], y=vibration_data, name=label_name, mode='lines', line=dict(color=color_rgba.replace('0.4','1'))), secondary_y=True)
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=vibration_data,
+                    name=label_name,
+                    mode='lines',
+                    line=dict(color=color_rgba.replace('0.4','1'))
+                ),
+                secondary_y=True
+            )
 
         # Add anomalies
         anomalies_df = df[df[f'{curve_name}_anom']]
         if not anomalies_df.empty:
             anomaly_vibration_data = anomalies_df[curve_name] + current_offset
-            fig.add_trace(go.Scatter(
-                x=anomalies_df['Crank Angle'],
-                y=anomaly_vibration_data,
-                mode='markers',
-                name=f"{label_name} Anomalies",
-                marker=dict(
-                    color=anomalies_df[f'{curve_name}_anom_score'],
-                    colorscale='Reds',
-                    showscale=False
+            fig.add_trace(
+                go.Scatter(
+                    x=anomalies_df['Crank Angle'],
+                    y=anomaly_vibration_data,
+                    mode='markers',
+                    name=f"{label_name} Anomalies",
+                    marker=dict(
+                        color=anomalies_df[f'{curve_name}_anom_score'],
+                        colorscale='Reds',
+                        showscale=False
+                    ),
+                    hoverinfo='text',
+                    text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
+                    showlegend=False
                 ),
-                hoverinfo='text',
-                text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
-                showlegend=False
-            ), secondary_y=True)
-        
+                secondary_y=True
+            )
+
+        # Add valve events
         analysis_id = analysis_ids.get(vc['name'])
         if analysis_id:
             try:
-                events_raw = _db_client.execute("SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?", (analysis_id,)).rows
+                events_raw = _db_client.execute(
+                    "SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?",
+                    (analysis_id,)
+                ).rows
                 events = {etype: angle for etype, angle in events_raw}
                 if 'open' in events and 'close' in events:
-                    fig.add_vrect(x0=events['open'], x1=events['close'], fillcolor=color_rgba.replace('0.4','0.2'), layer="below", line_width=0)
+                    fig.add_vrect(
+                        x0=events['open'],
+                        x1=events['close'],
+                        fillcolor=color_rgba.replace('0.4','0.2'),
+                        layer="below",
+                        line_width=0
+                    )
                 for event_type, crank_angle in events.items():
-                    fig.add_vline(x=crank_angle, line_width=2, line_dash="dash", line_color='green' if event_type == 'open' else 'red')
+                    fig.add_vline(
+                        x=crank_angle,
+                        line_width=2,
+                        line_dash="dash",
+                        line_color='green' if event_type == 'open' else 'red'
+                    )
             except Exception as e:
                 st.warning(f"Could not load valve events for {vc['name']}: {e}")
+        
+        # Add anomaly data to report
+        anomaly_count = int(df[f'{curve_name}_anom'].sum())
+        avg_score = df.loc[df[f'{curve_name}_anom'], f'{curve_name}_anom_score'].mean() if anomaly_count > 0 else 0.0
+        report_data.append({
+            "name": vc['name'],
+            "curve_name": curve_name,
+            "threshold": avg_score,
+            "count": anomaly_count,
+            "unit": "G"
+        })
         
         current_offset += vertical_offset
 
@@ -782,32 +882,24 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
 
     # --- ADD P-V OVERLAY if requested ---
-    if show_pv_overlay and view_mode == "Crank-angle":
-        bore = cylinder_config.get("bore")
-        stroke = cylinder_config.get("stroke")
-        
-        can_plot_pv = (
-            (bore is not None) and (stroke is not None) and
-            (pressure_curve is not None) and (pressure_curve in df.columns)
-        )
-        
-        if can_plot_pv:
-            try:
-                V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
+    if show_pv_overlay and view_mode == "Crank-angle" and can_plot_pv:
+        try:
+            V = compute_volume_series(df["Crank Angle"], bore, stroke, clearance_pct)
+            
+            if V is not None and len(V) > 0:
+                pressure_data = df[pressure_curve]
                 
-                if V is not None and len(V) > 0:
-                    pressure_data = df[pressure_curve]
+                if len(V) == len(pressure_data):
+                    # Scale volume data to fit nicely on the plot
+                    pressure_range = pressure_data.max() - pressure_data.min()
+                    volume_range = V.max() - V.min()
                     
-                    if len(V) == len(pressure_data):
-                        # Scale volume data to fit nicely on the plot
-                        pressure_range = pressure_data.max() - pressure_data.min()
-                        volume_range = V.max() - V.min()
-                        
-                        # Scale volume to use about 20% of the pressure range at the top
-                        volume_scaled = ((V - V.min()) / volume_range) * (pressure_range * 0.2) + pressure_data.max() + (pressure_range * 0.05)
-                        
-                        # Add P-V overlay as a line on the main plot
-                        fig.add_trace(go.Scatter(
+                    # Scale volume to use about 20% of the pressure range at the top
+                    volume_scaled = ((V - V.min()) / volume_range) * (pressure_range * 0.2) + pressure_data.max() + (pressure_range * 0.05)
+                    
+                    # Add P-V overlay as a line
+                    fig.add_trace(
+                        go.Scatter(
                             x=df['Crank Angle'],
                             y=volume_scaled,
                             mode='lines',
@@ -818,96 +910,83 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                         "<extra></extra>",
                             customdata=V,
                             opacity=0.7
-                        ), secondary_y=False)
+                        ),
+                        secondary_y=False
+                    )
 
-                        # Add P-V cycle markers at key points
-                        try:
-                            # Find TDC and BDC indices
-                            tdc_idx = V.idxmin()  # Minimum volume = Top Dead Center
-                            bdc_idx = V.idxmax()  # Maximum volume = Bottom Dead Center
-                            
-                            # Get the corresponding crank angles and pressures
-                            tdc_crank_angle = df.loc[tdc_idx, 'Crank Angle']
-                            bdc_crank_angle = df.loc[bdc_idx, 'Crank Angle']
-                            tdc_pressure = pressure_data.loc[tdc_idx]
-                            bdc_pressure = pressure_data.loc[bdc_idx]
-                            
-                            # Debug info
-                            st.info(f"🔍 TDC at {tdc_crank_angle:.1f}° ({tdc_pressure:.1f} PSI), BDC at {bdc_crank_angle:.1f}° ({bdc_pressure:.1f} PSI)")
-                            
-                            # Mark TDC (red circle) on the main crank angle plot
-                            fig.add_trace(go.Scatter(
-                                x=[tdc_crank_angle], 
-                                y=[tdc_pressure],
-                                mode='markers',
-                                marker=dict(size=12, color='red', symbol='circle', line=dict(width=2, color='darkred')),
-                                name='TDC (Top Dead Center)',
-                                hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>",
-                                showlegend=True
-                            ), secondary_y=False)
-                            
-                            # Mark BDC (blue square) on the main crank angle plot  
-                            fig.add_trace(go.Scatter(
-                                x=[bdc_crank_angle], 
-                                y=[bdc_pressure],
-                                mode='markers',
-                                marker=dict(size=12, color='blue', symbol='square', line=dict(width=2, color='darkblue')),
-                                name='BDC (Bottom Dead Center)',
-                                hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>",
-                                showlegend=True
-                            ), secondary_y=False)
-                            
-                            # Add text annotations for clarity
-                            fig.add_annotation(
-                                x=tdc_crank_angle, y=tdc_pressure,
-                                text="TDC", 
-                                showarrow=True, 
-                                arrowhead=2, 
-                                ax=30, ay=-30,
-                                bgcolor="rgba(255,255,255,0.8)",
-                                bordercolor="red",
-                                font=dict(color="red", size=10)
-                            )
-                            
-                            fig.add_annotation(
-                                x=bdc_crank_angle, y=bdc_pressure,
-                                text="BDC", 
-                                showarrow=True, 
-                                arrowhead=2, 
-                                ax=-30, ay=30,
-                                bgcolor="rgba(255,255,255,0.8)",
-                                bordercolor="blue", 
-                                font=dict(color="blue", size=10)
-                            )
-                            
-                        except Exception as e:
-                            st.warning(f"⚠️ Could not mark TDC/BDC points: {e}")
-                        
-                        # END OF NEW SECTION
-                        
-                        # Add TDC and BDC markers
+                    try:
+                        # Find TDC and BDC indices
                         tdc_idx = V.idxmin()
                         bdc_idx = V.idxmax()
                         
-                        fig.add_trace(go.Scatter(
-                            x=[df.loc[tdc_idx, 'Crank Angle']],
-                            y=[pressure_data.iloc[tdc_idx]],
-                            mode='markers',
-                            marker=dict(size=8, color='red', symbol='circle'),
-                            name='TDC',
-                            hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
-                        ), secondary_y=False)
+                        # Get corresponding values
+                        tdc_crank_angle = df.loc[tdc_idx, 'Crank Angle']
+                        bdc_crank_angle = df.loc[bdc_idx, 'Crank Angle']
+                        tdc_pressure = pressure_data.loc[tdc_idx]
+                        bdc_pressure = pressure_data.loc[bdc_idx]
                         
-                        fig.add_trace(go.Scatter(
-                            x=[df.loc[bdc_idx, 'Crank Angle']],
-                            y=[pressure_data.iloc[bdc_idx]],
-                            mode='markers',
-                            marker=dict(size=8, color='blue', symbol='square'),
-                            name='BDC',
-                            hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
-                        ), secondary_y=False)
+                        # Add TDC marker
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[tdc_crank_angle],
+                                y=[tdc_pressure],
+                                mode='markers',
+                                marker=dict(
+                                    size=12,
+                                    color='red',
+                                    symbol='circle',
+                                    line=dict(width=2, color='darkred')
+                                ),
+                                name='TDC',
+                                hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                            ),
+                            secondary_y=False
+                        )
                         
-                        # Update layout to show the overlay information
+                        # Add BDC marker
+                        fig.add_trace(
+                            go.Scatter(
+                                x=[bdc_crank_angle],
+                                y=[bdc_pressure],
+                                mode='markers',
+                                marker=dict(
+                                    size=12,
+                                    color='blue',
+                                    symbol='square',
+                                    line=dict(width=2, color='darkblue')
+                                ),
+                                name='BDC',
+                                hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                            ),
+                            secondary_y=False
+                        )
+                        
+                        # Add annotations
+                        fig.add_annotation(
+                            x=tdc_crank_angle,
+                            y=tdc_pressure,
+                            text="TDC",
+                            showarrow=True,
+                            arrowhead=2,
+                            ax=30, ay=-30,
+                            bgcolor="rgba(255,255,255,0.8)",
+                            bordercolor="red",
+                            font=dict(color="red", size=10)
+                        )
+                        
+                        fig.add_annotation(
+                            x=bdc_crank_angle,
+                            y=bdc_pressure,
+                            text="BDC",
+                            showarrow=True,
+                            arrowhead=2,
+                            ax=-30, ay=30,
+                            bgcolor="rgba(255,255,255,0.8)",
+                            bordercolor="blue",
+                            font=dict(color="blue", size=10)
+                        )
+                        
+                        # Add P-V overlay info
                         fig.update_layout(
                             annotations=[
                                 dict(
@@ -926,27 +1005,18 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         
                         st.info("✅ P-V overlay active! Purple dotted line shows scaled volume, markers show TDC/BDC positions.")
                         
-                    else:
-                        st.warning(f"⚠️ P-V overlay failed: Data length mismatch (Volume={len(V)}, Pressure={len(pressure_data)})")
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
                 else:
-                    st.warning("⚠️ P-V overlay failed: Could not compute volume data")
-                        
-            except Exception as e:
-                st.warning(f"⚠️ P-V overlay failed: {str(e)}")
-                st.error(f"Debug info: bore={bore}, stroke={stroke}, pressure_curve={pressure_curve}")
-        else:
-            # Show what's missing
-            missing = []
-            if bore is None:
-                missing.append("bore dimension")
-            if stroke is None:
-                missing.append("stroke dimension")
-            if pressure_curve is None or pressure_curve not in df.columns:
-                missing.append("pressure curve")
-            st.warning(f"⚠️ P-V overlay not available - missing: {', '.join(missing)}")
+                    st.warning(f"⚠️ P-V overlay failed: Data length mismatch (Volume={len(V)}, Pressure={len(pressure_data)})")
+            else:
+                st.warning("⚠️ P-V overlay failed: Could not compute volume data")
+                    
+        except Exception as e:
+            st.warning(f"⚠️ P-V overlay failed: {str(e)}")
+            st.error(f"Debug info: bore={bore}, stroke={stroke}, pressure_curve={pressure_curve}")
 
     return fig, report_data
-
 # --- Main Application ---
 db_client = init_db()
 
