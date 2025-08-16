@@ -481,7 +481,6 @@ def enhanced_file_upload_section():
         with col2:
             if st.button("🚀 Start Analysis", type="primary", use_container_width=True):
                 st.session_state['validated_files'] = files_content
-                st.balloons()  # Celebration effect
                 return files_content
         
         return None
