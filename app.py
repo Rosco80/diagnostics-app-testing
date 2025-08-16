@@ -840,21 +840,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 st.warning(f"P-V overlay failed: {e}")
     
     return fig, report_data
-    
-    # Fallback
-    return make_subplots(specs=[[{"secondary_y": True}]]), []
-        else:
-            st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
-                else:
-                    st.warning("Failed to compute volume data")
-                    
-            except Exception as e:
-                st.warning(f"P-V diagram computation failed: {e}")
-        else:
-            st.warning("P-V diagram not available (missing bore/stroke or pressure curve)")
-        
-        # Fall through to crank-angle mode if P-V fails
-    
+
+# ^^^ FUNCTION ENDS HERE ^^^
+  
     # --- Crank-angle mode (default) ---
     # Only execute if we're NOT in P-V mode or P-V mode failed
     fig = make_subplots(specs=[[{"secondary_y": True}]])
