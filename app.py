@@ -62,6 +62,277 @@ def init_db():
 
 # --- Helper Functions ---
 
+# ADD THESE NEW FUNCTIONS to your app.py file (add them near your other helper functions):
+
+def validate_xml_files(uploaded_files):
+    """
+    Validates uploaded XML files and returns validation results
+    """
+    validation_results = {
+        'is_valid': False,
+        'files_found': {},
+        'missing_files': [],
+        'file_info': {},
+        'errors': []
+    }
+    
+    if len(uploaded_files) != 3:
+        validation_results['errors'].append(f"Expected 3 files, got {len(uploaded_files)}")
+        return validation_results
+    
+    # Check for required file types
+    required_files = ['curves', 'levels', 'source']
+    found_files = {}
+    
+    for file in uploaded_files:
+        filename_lower = file.name.lower()
+        if 'curves' in filename_lower:
+            found_files['curves'] = file
+        elif 'levels' in filename_lower:
+            found_files['levels'] = file
+        elif 'source' in filename_lower:
+            found_files['source'] = file
+    
+    # Check what's missing
+    missing = [file_type for file_type in required_files if file_type not in found_files]
+    validation_results['missing_files'] = missing
+    validation_results['files_found'] = found_files
+    
+    if missing:
+        validation_results['errors'].append(f"Missing required files: {', '.join(missing)}")
+        return validation_results
+    
+    # Validate each XML file
+    for file_type, file in found_files.items():
+        try:
+            content = file.getvalue().decode('utf-8')
+            
+            # Basic XML validation
+            root = ET.fromstring(content)
+            
+            # File-specific validation
+            if file_type == 'curves':
+                # Check for curve data
+                curve_count = len([elem for elem in root.iter() if 'Data' in elem.tag])
+                validation_results['file_info'][file_type] = {
+                    'size_kb': len(content) / 1024,
+                    'data_points': curve_count,
+                    'status': 'Valid'
+                }
+            
+            elif file_type == 'levels':
+                # Check for machine info
+                machine_info = find_xml_value(root, 'Levels', 'Machine', 2) or 'Unknown'
+                validation_results['file_info'][file_type] = {
+                    'size_kb': len(content) / 1024,
+                    'machine_id': machine_info,
+                    'status': 'Valid'
+                }
+            
+            elif file_type == 'source':
+                # Check for configuration data
+                cylinder_data = len([elem for elem in root.iter() if 'CYLINDER' in elem.text if hasattr(elem, 'text') and elem.text])
+                validation_results['file_info'][file_type] = {
+                    'size_kb': len(content) / 1024,
+                    'config_entries': cylinder_data,
+                    'status': 'Valid'
+                }
+                
+        except ET.ParseError as e:
+            validation_results['errors'].append(f"{file_type.title()} file: Invalid XML format ({str(e)})")
+            validation_results['file_info'][file_type] = {'status': 'Invalid XML', 'error': str(e)}
+        except Exception as e:
+            validation_results['errors'].append(f"{file_type.title()} file: {str(e)}")
+            validation_results['file_info'][file_type] = {'status': 'Error', 'error': str(e)}
+    
+    # Set overall validation status
+    validation_results['is_valid'] = len(validation_results['errors']) == 0
+    
+    return validation_results
+
+def extract_preview_info(files_content):
+    """
+    Extracts key information for preview display
+    """
+    preview_info = {
+        'machine_id': 'Unknown',
+        'rpm': 'Unknown',
+        'cylinder_count': 0,
+        'total_curves': 0,
+        'file_sizes': {},
+        'timestamps': {}
+    }
+    
+    try:
+        # Extract machine info from levels
+        if 'levels' in files_content:
+            levels_root = ET.fromstring(files_content['levels'])
+            preview_info['machine_id'] = find_xml_value(levels_root, 'Levels', 'Machine', 2) or 'Unknown'
+            preview_info['rpm'] = extract_rpm(files_content['levels'])
+            preview_info['file_sizes']['levels'] = f"{len(files_content['levels'])/1024:.1f} KB"
+        
+        # Extract curve info
+        if 'curves' in files_content:
+            curves_root = ET.fromstring(files_content['curves'])
+            # Count data points
+            data_elements = curves_root.findall('.//Data')
+            preview_info['total_curves'] = len([elem for elem in data_elements if elem.text and elem.text.strip()])
+            preview_info['file_sizes']['curves'] = f"{len(files_content['curves'])/1024:.1f} KB"
+        
+        # Extract configuration info
+        if 'source' in files_content:
+            source_root = ET.fromstring(files_content['source'])
+            # Estimate cylinder count
+            cylinder_refs = source_root.findall('.//Data[contains(text(), "CYLINDER")]')
+            preview_info['cylinder_count'] = len(set([elem.text for elem in cylinder_refs if elem.text]))
+            preview_info['file_sizes']['source'] = f"{len(files_content['source'])/1024:.1f} KB"
+            
+    except Exception as e:
+        st.warning(f"Could not extract all preview information: {e}")
+    
+    return preview_info
+
+# REPLACE your file upload section in the main app with this enhanced version:
+
+def enhanced_file_upload_section():
+    """
+    Enhanced file upload with validation and preview
+    """
+    st.header("1. Upload Data Files")
+    uploaded_files = st.file_uploader(
+        "Upload Curves, Levels, Source XML files", 
+        type=["xml"], 
+        accept_multiple_files=True, 
+        key=f"file_uploader_{st.session_state.file_uploader_key}",
+        help="Upload exactly 3 XML files: one each for Curves, Levels, and Source data"
+    )
+    
+    if st.button("Start New Analysis / Clear Files"):
+        st.session_state.file_uploader_key += 1
+        st.session_state.active_session_id = None
+        st.rerun()
+    
+    # Validation and Preview
+    if uploaded_files:
+        if len(uploaded_files) != 3:
+            st.error(f"❌ Please upload exactly 3 XML files. You uploaded {len(uploaded_files)} files.")
+            st.info("💡 Required files: Curves.xml, Levels.xml, Source.xml")
+            return None
+        
+        # Show upload progress
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Step 1: Validate files
+        status_text.text("🔍 Validating uploaded files...")
+        progress_bar.progress(25)
+        
+        validation_results = validate_xml_files(uploaded_files)
+        
+        if not validation_results['is_valid']:
+            progress_bar.progress(100)
+            st.error("❌ File validation failed!")
+            
+            for error in validation_results['errors']:
+                st.error(f"• {error}")
+            
+            # Show what was found
+            if validation_results['files_found']:
+                st.info("✅ Files detected:")
+                for file_type in validation_results['files_found']:
+                    st.success(f"• {file_type.title()} file found")
+            
+            return None
+        
+        # Step 2: Extract content
+        status_text.text("📄 Processing file contents...")
+        progress_bar.progress(50)
+        
+        files_content = {}
+        for file in uploaded_files:
+            filename_lower = file.name.lower()
+            if 'curves' in filename_lower:
+                files_content['curves'] = file.getvalue().decode('utf-8')
+            elif 'levels' in filename_lower:
+                files_content['levels'] = file.getvalue().decode('utf-8')
+            elif 'source' in filename_lower:
+                files_content['source'] = file.getvalue().decode('utf-8')
+        
+        # Step 3: Generate preview
+        status_text.text("🔍 Generating preview...")
+        progress_bar.progress(75)
+        
+        preview_info = extract_preview_info(files_content)
+        
+        # Step 4: Complete
+        progress_bar.progress(100)
+        status_text.text("✅ Files ready for analysis!")
+        
+        # Display validation success and preview
+        st.success("✅ All files validated successfully!")
+        
+        # Preview Box
+        st.subheader("📋 Data Preview")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Machine ID", preview_info['machine_id'])
+            st.metric("RPM", preview_info['rpm'])
+        
+        with col2:
+            st.metric("Cylinders", preview_info['cylinder_count'])
+            st.metric("Data Curves", preview_info['total_curves'])
+        
+        with col3:
+            st.write("**File Sizes:**")
+            for file_type, size in preview_info['file_sizes'].items():
+                st.write(f"• {file_type.title()}: {size}")
+        
+        # File details expander
+        with st.expander("🔍 Detailed File Information"):
+            for file_type, info in validation_results['file_info'].items():
+                st.write(f"**{file_type.title()} File:**")
+                if info['status'] == 'Valid':
+                    if file_type == 'curves':
+                        st.write(f"• Status: ✅ {info['status']}")
+                        st.write(f"• Size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Data points: {info['data_points']}")
+                    elif file_type == 'levels':
+                        st.write(f"• Status: ✅ {info['status']}")
+                        st.write(f"• Size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Machine: {info['machine_id']}")
+                    elif file_type == 'source':
+                        st.write(f"• Status: ✅ {info['status']}")
+                        st.write(f"• Size: {info['size_kb']:.1f} KB")
+                        st.write(f"• Config entries: {info['config_entries']}")
+                else:
+                    st.write(f"• Status: ❌ {info['status']}")
+                    if 'error' in info:
+                        st.write(f"• Error: {info['error']}")
+                st.write("---")
+        
+        # Proceed button
+        if st.button("🚀 Proceed with Analysis", type="primary"):
+            st.session_state['validated_files'] = files_content
+            st.success("📊 Starting analysis with validated data...")
+            return files_content
+        else:
+            st.info("👆 Click 'Proceed with Analysis' when ready to start")
+            return None
+    
+    else:
+        st.info("👆 Please upload your 3 XML files to begin")
+        return None
+
+# REPLACE your main file upload section with this call:
+# Change this line in your main app:
+# if uploaded_files and len(uploaded_files) == 3:
+
+# To this:
+# validated_files = enhanced_file_upload_section()
+# if validated_files:
+
 def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
     """
     Computes instantaneous cylinder volume for each crank angle for P-V diagram.
@@ -1027,12 +1298,7 @@ st.title("⚙️ AI-Powered Machine Diagnostics Analyzer")
 st.markdown("Upload your machine's XML data files. The configuration will be discovered automatically.")
 
 with st.sidebar:
-    st.header("1. Upload Data Files")
-    uploaded_files = st.file_uploader("Upload Curves, Levels, Source XML files", type=["xml"], accept_multiple_files=True, key=f"file_uploader_{st.session_state.file_uploader_key}")
-    if st.button("Start New Analysis / Clear Files"):
-        st.session_state.file_uploader_key += 1
-        st.session_state.active_session_id = None
-        st.rerun()
+    validated_files = enhanced_file_upload_section()
 
     st.header("2. View Options")
     envelope_view = st.checkbox("Enable Envelope View", value=True)
@@ -1055,12 +1321,8 @@ with st.sidebar:
         help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
     )
 
-if uploaded_files and len(uploaded_files) == 3:
-    files_content = {}
-    for f in uploaded_files:
-        if 'curves' in f.name.lower(): files_content['curves'] = f.getvalue().decode('utf-8')
-        elif 'levels' in f.name.lower(): files_content['levels'] = f.getvalue().decode('utf-8')
-        elif 'source' in f.name.lower(): files_content['source'] = f.getvalue().decode('utf-8')
+if validated_files:
+    files_content = validated_files
 
     if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
         df, actual_curve_names = load_all_curves_data(files_content['curves'])
