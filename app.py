@@ -694,10 +694,10 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             else:
                 st.warning("Failed to compute volume data")
             
-    except Exception as e:
-        st.warning(f"P-V diagram computation failed: {e}")
-else:
-    st.warning("P-V diagram not available (missing bore/stroke or pressure curve)")
+        except Exception as e:
+            st.warning(f"P-V diagram computation failed: {e}")
+    else:
+        st.warning("P-V diagram not available (missing bore/stroke or pressure curve)")
     
 	# --- Crank-angle mode OR Dual view mode ---
     fig = make_subplots(specs=[[{"secondary_y": True}]])
