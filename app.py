@@ -178,7 +178,7 @@ def extract_preview_info(files_content):
         if 'source' in files_content:
             source_root = ET.fromstring(files_content['source'])
             # Estimate cylinder count
-            cylinder_refs = source_root.findall('.//Data[contains(text(), "CYLINDER")]')
+            cylinder_refs = [elem for elem in source_root.iter() if hasattr(elem, 'text') and elem.text and 'CYLINDER' in elem.text]
             preview_info['cylinder_count'] = len(set([elem.text for elem in cylinder_refs if elem.text]))
             preview_info['file_sizes']['source'] = f"{len(files_content['source'])/1024:.1f} KB"
             
