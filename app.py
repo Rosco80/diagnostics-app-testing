@@ -131,12 +131,7 @@ def validate_xml_files(uploaded_files):
             
             elif file_type == 'source':
                 # Check for configuration data
-                cylinder_data = len([elem for elem in root.iter() if 'CYLINDER' in elem.text if hasattr(elem, 'text') and elem.text])
-                validation_results['file_info'][file_type] = {
-                    'size_kb': len(content) / 1024,
-                    'config_entries': cylinder_data,
-                    'status': 'Valid'
-                }
+                cylinder_data = len([elem for elem in root.iter() if hasattr(elem, 'text') and elem.text and 'CYLINDER' in elem.text])
                 
         except ET.ParseError as e:
             validation_results['errors'].append(f"{file_type.title()} file: Invalid XML format ({str(e)})")
