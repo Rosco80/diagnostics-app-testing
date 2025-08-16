@@ -804,6 +804,71 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             customdata=V,
                             opacity=0.7
                         ), secondary_y=False)
+
+                        # Add P-V cycle markers at key points
+                        try:
+                            # Find TDC and BDC indices
+                            tdc_idx = V.idxmin()  # Minimum volume = Top Dead Center
+                            bdc_idx = V.idxmax()  # Maximum volume = Bottom Dead Center
+                            
+                            # Get the corresponding crank angles and pressures
+                            tdc_crank_angle = df.loc[tdc_idx, 'Crank Angle']
+                            bdc_crank_angle = df.loc[bdc_idx, 'Crank Angle']
+                            tdc_pressure = pressure_data.loc[tdc_idx]
+                            bdc_pressure = pressure_data.loc[bdc_idx]
+                            
+                            # Debug info
+                            st.info(f"🔍 TDC at {tdc_crank_angle:.1f}° ({tdc_pressure:.1f} PSI), BDC at {bdc_crank_angle:.1f}° ({bdc_pressure:.1f} PSI)")
+                            
+                            # Mark TDC (red circle) on the main crank angle plot
+                            fig.add_trace(go.Scatter(
+                                x=[tdc_crank_angle], 
+                                y=[tdc_pressure],
+                                mode='markers',
+                                marker=dict(size=12, color='red', symbol='circle', line=dict(width=2, color='darkred')),
+                                name='TDC (Top Dead Center)',
+                                hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>",
+                                showlegend=True
+                            ), secondary_y=False)
+                            
+                            # Mark BDC (blue square) on the main crank angle plot  
+                            fig.add_trace(go.Scatter(
+                                x=[bdc_crank_angle], 
+                                y=[bdc_pressure],
+                                mode='markers',
+                                marker=dict(size=12, color='blue', symbol='square', line=dict(width=2, color='darkblue')),
+                                name='BDC (Bottom Dead Center)',
+                                hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>",
+                                showlegend=True
+                            ), secondary_y=False)
+                            
+                            # Add text annotations for clarity
+                            fig.add_annotation(
+                                x=tdc_crank_angle, y=tdc_pressure,
+                                text="TDC", 
+                                showarrow=True, 
+                                arrowhead=2, 
+                                ax=30, ay=-30,
+                                bgcolor="rgba(255,255,255,0.8)",
+                                bordercolor="red",
+                                font=dict(color="red", size=10)
+                            )
+                            
+                            fig.add_annotation(
+                                x=bdc_crank_angle, y=bdc_pressure,
+                                text="BDC", 
+                                showarrow=True, 
+                                arrowhead=2, 
+                                ax=-30, ay=30,
+                                bgcolor="rgba(255,255,255,0.8)",
+                                bordercolor="blue", 
+                                font=dict(color="blue", size=10)
+                            )
+                            
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not mark TDC/BDC points: {e}")
+                        
+                        # END OF NEW SECTION
                         
                         # Add TDC and BDC markers
                         tdc_idx = V.idxmin()
