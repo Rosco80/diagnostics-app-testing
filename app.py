@@ -50,9 +50,9 @@ try:
 except ImportError:
     REPORTLAB_AVAILABLE = False
 
-# --- Helper function for triggering reruns ---
-def trigger_rerun():
-    st.session_state.settings_changed = True
+# --- Helper function for triggering reruns (REMOVED - causing issues) ---
+# def trigger_rerun():
+#     st.session_state.settings_changed = True
 
 # --- Database Setup ---
 @st.cache_resource
@@ -1773,15 +1773,13 @@ with st.sidebar:
     vertical_offset = st.slider(
         "Vertical Offset",
         0.0, 5.0, 1.0, 0.1,
-        key='vertical_offset',
-        on_change=trigger_rerun
+        key='vertical_offset'
     )
     view_mode = st.radio(
         "View Mode",
         ["Crank-angle", "P-V"],
         index=0,
-        key='view_mode',
-        on_change=trigger_rerun
+        key='view_mode'
     )
     show_pv_overlay = False
     if view_mode == "Crank-angle":
@@ -1789,7 +1787,6 @@ with st.sidebar:
             "🔄 Show P-V Overlay",
             value=False,
             key='pv_overlay',
-            on_change=trigger_rerun,
             help="Show P-V diagram as overlay on crank-angle view"
         )
     
@@ -1800,7 +1797,6 @@ with st.sidebar:
         value=5.0,
         step=0.5,
         key='clearance_pct',
-        on_change=trigger_rerun,
         help="Estimated clearance volume as % of swept volume (MVP approximation)."
     )
     
@@ -1959,7 +1955,6 @@ if validated_files:
                     pdf_buffer = generate_pdf_report_enhanced(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
                     if pdf_buffer:
                         st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
-                        st.session_state.settings_changed = True
                         
 
                 
