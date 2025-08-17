@@ -1903,17 +1903,18 @@ if validated_files:
                 # Generate plot and initial data
                 _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
                     
-                    # Create or update analysis records in DB
-                        analysis_ids = {}
-                            for item in temp_report_data: rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                                existing_id_row = rs.rows[0] if rs.rows else None
-                        if existing_id_row:
-                            analysis_id = existing_id_row[0]
-                            db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
-                        else:
-                            db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
-                            analysis_id = get_last_row_id(db_client)
-                        analysis_ids[item['name']] = analysis_id
+                # Create or update analysis records in DB
+                analysis_ids = {}
+                    for item in temp_report_data: rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                        existing_id_row = rs.rows[0] if rs.rows else None
+                if existing_id_row:
+                    analysis_id = existing_id_row[0]
+                    db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
+                else:
+                    db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
+                    analysis_id = get_last_row_id(db_client)
+                    analysis_ids[item['name']] = analysis_id
+
                     
                     # Regenerate plot with correct analysis_ids
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
