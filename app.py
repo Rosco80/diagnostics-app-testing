@@ -1899,9 +1899,9 @@ if validated_files:
                 selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
                 selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
 
-                if selected_cylinder_config:
-                    # Generate plot and initial data
-                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
+            if selected_cylinder_config:
+                # Generate plot and initial data
+                _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
                     
                     # Create or update analysis records in DB
                     analysis_ids = {}
@@ -1927,22 +1927,22 @@ if validated_files:
                         st.subheader("🛠 Rule‑Based Diagnostics")
                         for name, suggestion in suggestions.items():
                             st.warning(f"{name}: {suggestion}")
-
+         
                     # Compute health score before using it
                     health_score = compute_health_score(report_data, suggestions)
-
+        
                     # Now we can safely use health_score in alerts and metrics
                     check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                     st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
-
+        
                     # Display health report
                     st.subheader("📋 Compressor Health Report")
                     cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
                     health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
                     if not health_report_df.empty:
                         st.dataframe(health_report_df, use_container_width=True, hide_index=True)
-
+        
                     # Labeling and event marking
                     with st.expander("Add labels and mark valve events"):
                         st.subheader("Fault Labels")
@@ -2034,7 +2034,7 @@ if validated_files:
                                 <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
                                 </div>
                                 """, unsafe_allow_html=True)
-
+            
             else:
                 st.error("Could not discover a valid machine configuration.")
         else:
