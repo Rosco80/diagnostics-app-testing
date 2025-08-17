@@ -1419,98 +1419,121 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     )
 
                     try:
-                        # Find TDC and BDC indices
-                        tdc_idx = V.idxmin()
-                        bdc_idx = V.idxmax()
-                        
-                        # Get corresponding values
-                        tdc_crank_angle = df.loc[tdc_idx, 'Crank Angle']
-                        bdc_crank_angle = df.loc[bdc_idx, 'Crank Angle']
-                        tdc_pressure = pressure_data.loc[tdc_idx]
-                        bdc_pressure = pressure_data.loc[bdc_idx]
-                        
-                        # Add TDC marker
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[tdc_crank_angle],
-                                y=[tdc_pressure],
-                                mode='markers',
-                                marker=dict(
-                                    size=12,
-                                    color='red',
-                                    symbol='circle',
-                                    line=dict(width=2, color='darkred')
-                                ),
-                                name='TDC',
-                                hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
-                            ),
-                            secondary_y=False
-                        )
-                        
-                        # Add BDC marker
-                        fig.add_trace(
-                            go.Scatter(
-                                x=[bdc_crank_angle],
-                                y=[bdc_pressure],
-                                mode='markers',
-                                marker=dict(
-                                    size=12,
-                                    color='blue',
-                                    symbol='square',
-                                    line=dict(width=2, color='darkblue')
-                                ),
-                                name='BDC',
-                                hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
-                            ),
-                            secondary_y=False
-                        )
-                        
-                        # Add annotations
-                        fig.add_annotation(
-                            x=tdc_crank_angle,
-                            y=tdc_pressure,
-                            text="TDC",
-                            showarrow=True,
-                            arrowhead=2,
-                            ax=30, ay=-30,
-                            bgcolor="rgba(255,255,255,0.8)",
-                            bordercolor="red",
-                            font=dict(color="red", size=10)
-                        )
-                        
-                        fig.add_annotation(
-                            x=bdc_crank_angle,
-                            y=bdc_pressure,
-                            text="BDC",
-                            showarrow=True,
-                            arrowhead=2,
-                            ax=-30, ay=30,
-                            bgcolor="rgba(255,255,255,0.8)",
-                            bordercolor="blue",
-                            font=dict(color="blue", size=10)
-                        )
-                        
-                        # Add P-V overlay info
-                        fig.update_layout(
-                            annotations=[
-                                dict(
-                                    x=0.02, y=0.98,
-                                    xref="paper", yref="paper",
-                                    text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%",
-                                    showarrow=False,
-                                    bgcolor="rgba(128,0,128,0.1)",
-                                    bordercolor="purple",
-                                    borderwidth=1,
-                                    font=dict(size=9),
-                                    align="left"
-                                )
-                            ]
-                        )
-                        
-                        st.info("✅ P-V overlay active! Purple dotted line shows scaled volume, markers show TDC/BDC positions.")
+                        # Find TDC and BDC indices safely
+                        if len(V) > 0 and len(pressure_data) > 0:
+                            min_vol_value = V.min()
+                            max_vol_value = V.max()
+                            
+                            # Find indices safely
+                            min_vol_indices = V[V == min_vol_value].index
+                            max_vol_indices = V[V == max_vol_value].index
+                            
+                            if len(min_vol_indices) > 0 and len(max_vol_indices) > 0:
+                                tdc_idx = min_vol_indices[0]
+                                bdc_idx = max_vol_indices[0]
+                                
+                                # Verify indices exist in dataframe
+                                if (tdc_idx in df.index and bdc_idx in df.index and 
+                                    tdc_idx in pressure_data.index and bdc_idx in pressure_data.index):
+                                    
+                                    # Get corresponding values
+                                    tdc_crank_angle = df.loc[tdc_idx, 'Crank Angle']
+                                    bdc_crank_angle = df.loc[bdc_idx, 'Crank Angle']
+                                    tdc_pressure = pressure_data.loc[tdc_idx]
+                                    bdc_pressure = pressure_data.loc[bdc_idx]
+                                    
+                                    # Add TDC marker
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[tdc_crank_angle],
+                                            y=[tdc_pressure],
+                                            mode='markers',
+                                            marker=dict(
+                                                size=12,
+                                                color='red',
+                                                symbol='circle',
+                                                line=dict(width=2, color='darkred')
+                                            ),
+                                            name='TDC',
+                                            hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                                        ),
+                                        secondary_y=False
+                                    )
+                                    
+                                    # Add BDC marker
+                                    fig.add_trace(
+                                        go.Scatter(
+                                            x=[bdc_crank_angle],
+                                            y=[bdc_pressure],
+                                            mode='markers',
+                                            marker=dict(
+                                                size=12,
+                                                color='blue',
+                                                symbol='square',
+                                                line=dict(width=2, color='darkblue')
+                                            ),
+                                            name='BDC',
+                                            hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                                        ),
+                                        secondary_y=False
+                                    )
+                                    
+                                    # Add annotations
+                                    fig.add_annotation(
+                                        x=tdc_crank_angle,
+                                        y=tdc_pressure,
+                                        text="TDC",
+                                        showarrow=True,
+                                        arrowhead=2,
+                                        ax=30, ay=-30,
+                                        bgcolor="rgba(255,255,255,0.8)",
+                                        bordercolor="red",
+                                        font=dict(color="red", size=10)
+                                    )
+                                    
+                                    fig.add_annotation(
+                                        x=bdc_crank_angle,
+                                        y=bdc_pressure,
+                                        text="BDC",
+                                        showarrow=True,
+                                        arrowhead=2,
+                                        ax=-30, ay=30,
+                                        bgcolor="rgba(255,255,255,0.8)",
+                                        bordercolor="blue",
+                                        font=dict(color="blue", size=10)
+                                    )
+                                    
+                                    # Add P-V overlay info
+                                    fig.update_layout(
+                                        annotations=[
+                                            dict(
+                                                x=0.02, y=0.98,
+                                                xref="paper", yref="paper",
+                                                text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%",
+                                                showarrow=False,
+                                                bgcolor="rgba(128,0,128,0.1)",
+                                                bordercolor="purple",
+                                                borderwidth=1,
+                                                font=dict(size=9),
+                                                align="left"
+                                            )
+                                        ]
+                                    )
+                                    
+                                    st.info("✅ P-V overlay active! Purple dotted line shows scaled volume, markers show TDC/BDC positions.")
+                                else:
+                                    st.warning("⚠️ TDC/BDC indices not found in data")
+                            else:
+                                st.warning("⚠️ Could not find distinct min/max volume points")
+                        else:
+                            st.warning("⚠️ Volume or pressure data is empty for TDC/BDC marking")
                         
                     except Exception as e:
                         st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
+                        # Additional debug info
+                        st.error(f"Debug: tdc_idx={tdc_idx if 'tdc_idx' in locals() else 'N/A'}, bdc_idx={bdc_idx if 'bdc_idx' in locals() else 'N/A'}")
+                        if 'df' in locals():
+                            st.error(f"DataFrame index range: {df.index.min()} to {df.index.max()}")
                 else:
                     st.warning(f"⚠️ P-V overlay failed: Data length mismatch (Volume={len(V)}, Pressure={len(pressure_data)})")
             else:
