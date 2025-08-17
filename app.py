@@ -310,7 +310,11 @@ def extract_preview_info(files_content):
                 
                 # Get RPM safely
                 try:
-                    rpm = extract_rpm(files_content['levels'])
+                    rpm = extract_rpm_correct(
+                        files_content.get('levels'),
+                        files_content.get('source'), 
+                        files_content.get('curves')
+                    )
                     if rpm and rpm not in ['N/A', '', 'Unknown']:
                         preview_info['rpm'] = rpm
                 except:
@@ -827,15 +831,74 @@ def load_all_curves_data(_curves_xml_content):
         st.error(f"Failed to load curves data: {e}")
         return None, None
 
-def extract_rpm(_levels_xml_content):
-    try:
-        root = ET.fromstring(_levels_xml_content)
-        rpm_str = find_xml_value(root, 'Levels', 'RPM', 1)
-        if rpm_str != "N/A":
-            return f"{float(rpm_str):.0f}"
-    except Exception:
-        return "N/A"
-    return "N/A"
+def extract_rpm_correct(levels_xml_content=None, source_xml_content=None, curves_xml_content=None):
+    """
+    Extract RPM from the correct XML files - tries multiple sources in order of preference
+    """
+    # Method 1: Try actual run speed from CURVES file (most accurate - actual operating RPM)
+    if curves_xml_content:
+        try:
+            curves_root = ET.fromstring(curves_xml_content)
+            
+            # Look for "Run Speed" row
+            for elem in curves_root.iter():
+                if hasattr(elem, 'text') and elem.text and 'Run Speed' in str(elem.text):
+                    # Found the Run Speed row, get the first numeric value
+                    parent_row = elem.getparent()
+                    if parent_row is not None:
+                        for cell in parent_row.findall('.//Data[@ss:Type="Number"]', 
+                                                    namespaces={'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}):
+                            if cell.text:
+                                try:
+                                    rpm_val = float(cell.text)
+                                    if 100 <= rpm_val <= 10000:  # Reasonable RPM range
+                                        return f"{rpm_val:.0f}"
+                                except (ValueError, TypeError):
+                                    continue
+                        break
+        except Exception:
+            pass
+    
+    # Method 2: Try rated RPM from SOURCE file (design RPM)
+    if source_xml_content:
+        try:
+            source_root = ET.fromstring(source_xml_content)
+            
+            # Look for "COMPRESSOR RATED RPM"
+            for elem in source_root.iter():
+                if hasattr(elem, 'text') and elem.text and 'COMPRESSOR RATED RPM' in str(elem.text):
+                    # Found the rated RPM row, get the numeric value
+                    parent_row = elem.getparent()
+                    if parent_row is not None:
+                        for cell in parent_row.findall('.//Data[@ss:Type="Number"]', 
+                                                    namespaces={'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}):
+                            if cell.text:
+                                try:
+                                    rpm_val = float(cell.text)
+                                    if 100 <= rpm_val <= 10000:  # Reasonable RPM range
+                                        return f"{rpm_val:.0f}"
+                                except (ValueError, TypeError):
+                                    continue
+                        break
+        except Exception:
+            pass
+    
+    # Method 3: Try the original levels method (fallback)
+    if levels_xml_content:
+        try:
+            levels_root = ET.fromstring(levels_xml_content)
+            rpm_str = find_xml_value(levels_root, 'Levels', 'RPM', 1)
+            if rpm_str and rpm_str != "N/A":
+                try:
+                    rpm_val = float(rpm_str)
+                    if 100 <= rpm_val <= 10000:
+                        return f"{rpm_val:.0f}"
+                except (ValueError, TypeError):
+                    pass
+        except Exception:
+            pass
+    
+    return "Unknown"
 
 @st.cache_data
 def auto_discover_configuration(_source_xml_content, all_curve_names):
@@ -1239,14 +1302,17 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
     if chart_fig:
         try:
             img_buffer = io.BytesIO()
-            chart_fig.write_image(img_buffer, format='png', width=500, height=300)
+            # Larger size for better quality
+            chart_fig.write_image(img_buffer, format='png', width=800, height=500, scale=2)
             img_buffer.seek(0)
             from reportlab.platypus import Image
             story.append(Paragraph("Diagnostic Chart", heading_style))
-            story.append(Image(img_buffer, width=450, height=270))
+            # Fit to page width with proper aspect ratio
+            story.append(Image(img_buffer, width=500, height=312))
             story.append(Spacer(1, 15))
         except Exception as e:
-            story.append(Paragraph(f"Chart generation error: {e}", styles['Normal']))
+            story.append(Paragraph(f"Chart could not be generated. Error: {str(e)}", styles['Normal']))
+            story.append(Paragraph("Please ensure kaleido is installed for chart export.", styles['Normal']))
     
     # Detailed Health Report
     story.append(Paragraph("Detailed Health Report", heading_style))
@@ -1799,7 +1865,11 @@ if validated_files:
                             'actual_curve_names': actual_curve_names
                         })
                         
-                        rpm = extract_rpm(files_content['levels'])
+                        rpm = extract_rpm_correct(
+                            files_content.get('levels'),
+                            files_content.get('source'), 
+                            files_content.get('curves')
+                        )
                         machine_id = discovered_config.get('machine_id', 'N/A')
                         
                         # Database session management
@@ -1888,7 +1958,11 @@ if validated_files:
                 with col1:
                     if st.button("📄 Download PDF Report", type="secondary", use_container_width=True):
                         machine_id = discovered_config.get('machine_id', 'N/A')
-                        rpm = extract_rpm(files_content['levels'])
+                        rpm = extract_rpm_correct(
+                            files_content.get('levels'),
+                            files_content.get('source'), 
+                            files_content.get('curves')
+                        )
                         
                         # Generate PDF with executive summary
                         pdf_buffer = generate_pdf_report(
@@ -1960,7 +2034,11 @@ if validated_files:
                     # Export and Cylinder Details
                     st.header("📄 Export Report")
                     if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                        pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+                        rpm = extract_rpm_correct(
+                            files_content.get('levels'),
+                            files_content.get('source'), 
+                            files_content.get('curves')
+                        )
                         if pdf_buffer:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
 
