@@ -1039,50 +1039,104 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         return None
 
 def generate_health_report_table(_source_xml_content, _levels_xml_content, cylinder_index):
+    """
+    Enhanced health report table that shows ALL valves for the cylinder
+    """
     try:
         source_root = ET.fromstring(_source_xml_content)
         levels_root = ET.fromstring(_levels_xml_content)
-        col_idx = cylinder_index
         
         def convert_kpa_to_psi(kpa_str):
-            if kpa_str == "N/A" or not kpa_str: return "N/A"
-            try: return f"{float(kpa_str) * 0.145038:.1f}"
-            except (ValueError, TypeError): return kpa_str
+            if kpa_str == "N/A" or not kpa_str:
+                return "N/A"
+            try:
+                return f"{float(kpa_str) * 0.145038:.1f}"
+            except (ValueError, TypeError):
+                return kpa_str
 
         def format_numeric_value(value_str, precision=2):
-            if value_str == "N/A" or not value_str: return "N/A"
-            try: return f"{float(value_str):.{precision}f}"
-            except (ValueError, TypeError): return value_str
+            if value_str == "N/A" or not value_str:
+                return "N/A"
+            try:
+                return f"{float(value_str):.{precision}f}"
+            except (ValueError, TypeError):
+                return value_str
 
+        # Get basic pressures and temperatures
         suction_p = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'SUCTION PRESSURE GAUGE', 2))
         discharge_p = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'DISCHARGE PRESSURE GAUGE', 2))
         suction_temp = find_xml_value(levels_root, 'Levels', 'SUCTION GAUGE TEMPERATURE', 2)
+        
+        # Get cylinder-specific data
+        col_idx = cylinder_index
         discharge_temp = find_xml_value(levels_root, 'Levels', 'COMP CYL, DISCHARGE TEMPERATURE', col_idx + 1)
         bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx + 1)
         rod_diam = find_xml_value(source_root, 'Source', 'PISTON ROD DIAMETER', col_idx + 1)
         
-        # Extract raw values first
-        comp_ratio_he_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=2)
-        comp_ratio_ce_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=1)
-        power_he_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=2)
-        power_ce_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=1)
-
-        # Apply formatting to the extracted values
-        comp_ratio_he = format_numeric_value(comp_ratio_he_raw, precision=2)
-        comp_ratio_ce = format_numeric_value(comp_ratio_ce_raw, precision=2)
-        power_he = format_numeric_value(power_he_raw, precision=1)
-        power_ce = format_numeric_value(power_ce_raw, precision=1)
-
-        data = {
-            'Cyl End': [f'{cylinder_index}H', f'{cylinder_index}C'], 
-            'Bore (ins)': [bore] * 2, 
-            'Rod Diam (ins)': ['N/A', rod_diam],
-            'Pressure Ps/Pd (psig)': [f"{suction_p} / {discharge_p}"] * 2, 
-            'Temp Ts/Td (°C)': [f"{suction_temp} / {discharge_temp}"] * 2,
-            'Comp. Ratio': [comp_ratio_he, comp_ratio_ce], 
-            'Indicated Power (ihp)': [power_he, power_ce]
-        }
-        return pd.DataFrame(data)
+        # Extract performance data for ALL valve combinations
+        all_valve_data = []
+        
+        # Head End (H) and Crank End (C) combinations
+        valve_configs = [
+            {'end': 'H', 'col_offset': 0, 'rod_diam': 'N/A'},  # Head end
+            {'end': 'C', 'col_offset': 0, 'rod_diam': rod_diam},  # Crank end
+        ]
+        
+        # Try to find additional valve configurations by looking for more data columns
+        for config in valve_configs:
+            end = config['end']
+            
+            # Get compression ratio
+            comp_ratio_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, 
+                                          occurrence=2 if end == 'H' else 1)
+            comp_ratio = format_numeric_value(comp_ratio_raw, precision=2)
+            
+            # Get indicated power
+            power_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, 
+                                     occurrence=2 if end == 'H' else 1)
+            power = format_numeric_value(power_raw, precision=1)
+            
+            # Try to get valve-specific data if available
+            valve_data = {
+                'Cyl End': f'{cylinder_index}{end}',
+                'Bore (ins)': bore,
+                'Rod Diam (ins)': config['rod_diam'],
+                'Pressure Ps/Pd (psig)': f"{suction_p} / {discharge_p}",
+                'Temp Ts/Td (°C)': f"{suction_temp} / {discharge_temp}",
+                'Comp. Ratio': comp_ratio,
+                'Indicated Power (ihp)': power
+            }
+            
+            all_valve_data.append(valve_data)
+        
+        # Look for additional valve data (some machines may have more valve sets)
+        try:
+            # Check if there are more valve configurations by scanning for additional data
+            additional_valves = []
+            for occurrence in range(3, 6):  # Check for more occurrences
+                comp_ratio_extra = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=occurrence)
+                if comp_ratio_extra and comp_ratio_extra != 'N/A':
+                    power_extra = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx + 1, occurrence=occurrence)
+                    
+                    extra_valve = {
+                        'Cyl End': f'{cylinder_index}V{occurrence-2}',  # V3, V4, etc for additional valves
+                        'Bore (ins)': bore,
+                        'Rod Diam (ins)': 'N/A',
+                        'Pressure Ps/Pd (psig)': f"{suction_p} / {discharge_p}",
+                        'Temp Ts/Td (°C)': f"{suction_temp} / {discharge_temp}",
+                        'Comp. Ratio': format_numeric_value(comp_ratio_extra, precision=2),
+                        'Indicated Power (ihp)': format_numeric_value(power_extra, precision=1)
+                    }
+                    additional_valves.append(extra_valve)
+            
+            all_valve_data.extend(additional_valves)
+            
+        except Exception:
+            pass  # No additional valves found
+        
+        # Create DataFrame with all found valve data
+        return pd.DataFrame(all_valve_data)
+        
     except Exception as e:
         st.warning(f"Could not generate health report: {e}")
         return pd.DataFrame()
@@ -2031,16 +2085,35 @@ if validated_files:
                                         st.success(f"Events updated for {item['name']}.")
                                         st.rerun()
 
-                    # Export and Cylinder Details
-                    st.header("📄 Export Report")
-                    if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                        rpm = extract_rpm_correct(
-                            files_content.get('levels'),
-                            files_content.get('source'), 
-                            files_content.get('curves')
+                    # PDF Download - MOVED TO EXPORT SECTION
+                st.subheader("📄 Export Report")
+                
+                try:
+                    machine_id = discovered_config.get('machine_id', 'N/A')
+                    rpm = extract_rpm_improved(files_content['levels'])  # Use improved RPM extraction
+                    
+                    # Generate PDF with executive summary
+                    pdf_buffer = generate_pdf_report(
+                        machine_id, rpm, selected_cylinder_name, 
+                        report_data, health_report_df, fig, 
+                        suggestions, health_score
+                    )
+                    
+                    if pdf_buffer:
+                        st.download_button(
+                            label="📥 Download PDF Report",
+                            data=pdf_buffer,
+                            file_name=f"diagnostic_report_{machine_id}_{selected_cylinder_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            type="primary",
+                            use_container_width=True
                         )
-                        if pdf_buffer:
-                            st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
+                        st.success("✅ PDF report ready for download!")
+                    else:
+                        st.error("❌ Failed to generate PDF report")
+                        
+                except Exception as e:
+                    st.error(f"Error generating PDF: {str(e)}")
 
                     st.markdown("---")
                     # Machine Info Block
