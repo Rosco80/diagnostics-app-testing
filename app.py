@@ -1905,8 +1905,8 @@ if validated_files:
                     
                 # Create or update analysis records in DB
                 analysis_ids = {}
-                    for item in temp_report_data: rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                        existing_id_row = rs.rows[0] if rs.rows else None
+                for item in temp_report_data: rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                    existing_id_row = rs.rows[0] if rs.rows else None
                 if existing_id_row:
                     analysis_id = existing_id_row[0]
                     db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
