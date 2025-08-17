@@ -355,9 +355,42 @@ def extract_preview_info(files_content):
 
 def enhanced_file_upload_section():
     """
-    Enhanced file upload with validation and preview
+    Enhanced file upload with validation and preview - FIXED FOR STATE PERSISTENCE
     """
     st.header("1. Upload Data Files")
+    
+    # Check if we already have validated files in session state
+    if 'validated_files' in st.session_state and st.session_state.validated_files:
+        # Show that files are already loaded
+        st.success("✅ Files already loaded and validated!")
+        
+        # Show current file info
+        files_content = st.session_state.validated_files
+        preview_info = extract_preview_info(files_content)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Machine ID", preview_info['machine_id'])
+            st.metric("Cylinders", preview_info['cylinder_count'])
+        with col2:
+            st.metric("Data Curves", preview_info['total_curves'])
+            total_size = sum(preview_info['file_sizes'].values())
+            st.metric("Total Size", f"{total_size:.1f} KB")
+        
+        # Option to upload new files
+        if st.button("🔄 Upload New Files", use_container_width=True):
+            st.session_state.file_uploader_key += 1
+            st.session_state.active_session_id = None
+            if 'validated_files' in st.session_state:
+                del st.session_state.validated_files
+            if 'analysis_results' in st.session_state:
+                st.session_state.analysis_results = None
+            st.rerun()
+        
+        # Return the existing validated files
+        return st.session_state.validated_files
+    
+    # Original file upload logic when no files are loaded
     uploaded_files = st.file_uploader(
         "Upload Curves, Levels, Source XML files", 
         type=["xml"], 
@@ -369,9 +402,13 @@ def enhanced_file_upload_section():
     if st.button("Start New Analysis / Clear Files"):
         st.session_state.file_uploader_key += 1
         st.session_state.active_session_id = None
+        if 'validated_files' in st.session_state:
+            del st.session_state.validated_files
+        if 'analysis_results' in st.session_state:
+            st.session_state.analysis_results = None
         st.rerun()
     
-    # Validation and Preview
+    # Validation and Preview (only when files are uploaded)
     if uploaded_files:
         if len(uploaded_files) != 3:
             st.error(f"❌ Please upload exactly 3 XML files. You uploaded {len(uploaded_files)} files.")
@@ -473,7 +510,7 @@ def enhanced_file_upload_section():
         if warnings:
             st.warning("**Data Quality Warnings:**\n" + "\n".join(warnings))
         
-        # Detailed file information in expander (keep existing)
+        # Detailed file information in expander
         with st.expander("🔍 Detailed Technical Information"):
             for file_type, info in validation_results['file_info'].items():
                 st.markdown(f"**{file_type.title()} File Analysis:**")
@@ -499,7 +536,7 @@ def enhanced_file_upload_section():
                         st.error(f"• Error: {info['error']}")
                 st.markdown("---")
         
-        # Proceed button with better styling - IMPROVED LAYOUT
+        # Proceed button with better styling
         st.markdown("---")
         
         # Show warnings/status message first
@@ -512,7 +549,8 @@ def enhanced_file_upload_section():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             if st.button("🚀 Start Analysis", type="primary", use_container_width=True):
-                st.session_state['validated_files'] = files_content
+                # Store validated files in session state for persistence
+                st.session_state.validated_files = files_content
                 return files_content
         
         return None
