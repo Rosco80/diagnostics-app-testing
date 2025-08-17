@@ -1895,9 +1895,8 @@ if validated_files:
             cylinder_names = [c.get("cylinder_name") for c in cylinders]
             
             # Rest of your existing code stays the same...
-                with st.sidebar:
-                    selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
-                
+            with st.sidebar:
+                selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
                 selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
 
                 if selected_cylinder_config:
