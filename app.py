@@ -1786,7 +1786,7 @@ st.markdown("Upload your machine's XML data files. The configuration will be dis
 with st.sidebar:
     validated_files = enhanced_file_upload_section()
 
-    def trigger_rerun():
+def trigger_rerun():
     st.session_state.settings_changed = True
 
 with st.sidebar:
