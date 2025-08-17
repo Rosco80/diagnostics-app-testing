@@ -1073,10 +1073,6 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         bore = find_xml_value(source_root, 'Source', 'COMPRESSOR CYLINDER BORE', col_idx + 1)
         rod_diam = find_xml_value(source_root, 'Source', 'PISTON ROD DIAMETER', col_idx + 1)
         
-        # DEBUG: Add some debug output to see what we're finding
-        st.write(f"DEBUG Health Report: cylinder_index={cylinder_index}, col_idx={col_idx}")
-        st.write(f"DEBUG: bore={bore}, rod_diam={rod_diam}")
-        
         # Create comprehensive valve data - check for ALL possible valve configurations
         all_valve_data = []
         
@@ -1085,9 +1081,6 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         
         for occurrence in range(1, max_occurrences + 1):
             comp_ratio_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx + 1, occurrence=occurrence)
-            
-            # DEBUG: Show what we're finding
-            st.write(f"DEBUG: occurrence={occurrence}, comp_ratio_raw={comp_ratio_raw}")
             
             if comp_ratio_raw and comp_ratio_raw != 'N/A':
                 # Found a valid compression ratio, get corresponding power data
@@ -1115,74 +1108,9 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
                 }
                 
                 all_valve_data.append(valve_data)
-                st.write(f"DEBUG: Added valve data for {end_name}")
         
-        # ALTERNATIVE APPROACH: If compression ratio method doesn't work, try original method
+        # If no valve data found through compression ratios, create basic fallback
         if not all_valve_data:
-            st.write("DEBUG: No data found with compression ratio method, trying original method...")
-            
-            # Get data using the original method (your old working approach)
-            col_idx_original = cylinder_index  # Use original indexing
-            
-            # Extract raw values first (original method)
-            comp_ratio_he_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx_original + 1, occurrence=2)
-            comp_ratio_ce_raw = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx_original + 1, occurrence=1)
-            power_he_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx_original + 1, occurrence=2)
-            power_ce_raw = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx_original + 1, occurrence=1)
-
-            # Apply formatting to the extracted values
-            comp_ratio_he = format_numeric_value(comp_ratio_he_raw, precision=2)
-            comp_ratio_ce = format_numeric_value(comp_ratio_ce_raw, precision=2)
-            power_he = format_numeric_value(power_he_raw, precision=1)
-            power_ce = format_numeric_value(power_ce_raw, precision=1)
-
-            # Create the data using original structure
-            data = {
-                'Cyl End': [f'{cylinder_index}H', f'{cylinder_index}C'], 
-                'Bore (ins)': [bore] * 2, 
-                'Rod Diam (ins)': ['N/A', rod_diam],
-                'Pressure Ps/Pd (psig)': [f"{suction_p} / {discharge_p}"] * 2, 
-                'Temp Ts/Td (°C)': [f"{suction_temp} / {discharge_temp}"] * 2,
-                'Comp. Ratio': [comp_ratio_he, comp_ratio_ce], 
-                'Indicated Power (ihp)': [power_he, power_ce]
-            }
-            
-            # Convert to list format for consistency
-            for i in range(len(data['Cyl End'])):
-                valve_data = {
-                    'Cyl End': data['Cyl End'][i],
-                    'Bore (ins)': data['Bore (ins)'][i],
-                    'Rod Diam (ins)': data['Rod Diam (ins)'][i],
-                    'Pressure Ps/Pd (psig)': data['Pressure Ps/Pd (psig)'][i],
-                    'Temp Ts/Td (°C)': data['Temp Ts/Td (°C)'][i],
-                    'Comp. Ratio': data['Comp. Ratio'][i],
-                    'Indicated Power (ihp)': data['Indicated Power (ihp)'][i]
-                }
-                all_valve_data.append(valve_data)
-            
-            # Now try to find MORE valve configurations beyond H and C
-            for extra_occurrence in range(3, 8):
-                comp_ratio_extra = find_xml_value(source_root, 'Source', 'COMPRESSION RATIO', col_idx_original + 1, occurrence=extra_occurrence)
-                st.write(f"DEBUG: Extra occurrence {extra_occurrence}: {comp_ratio_extra}")
-                
-                if comp_ratio_extra and comp_ratio_extra != 'N/A':
-                    power_extra = find_xml_value(source_root, 'Source', 'HORSEPOWER INDICATED,  LOAD', col_idx_original + 1, occurrence=extra_occurrence)
-                    
-                    extra_valve_data = {
-                        'Cyl End': f'{cylinder_index}V{extra_occurrence-2}',
-                        'Bore (ins)': bore,
-                        'Rod Diam (ins)': 'N/A',
-                        'Pressure Ps/Pd (psig)': f"{suction_p} / {discharge_p}",
-                        'Temp Ts/Td (°C)': f"{suction_temp} / {discharge_temp}",
-                        'Comp. Ratio': format_numeric_value(comp_ratio_extra, precision=2),
-                        'Indicated Power (ihp)': format_numeric_value(power_extra, precision=1)
-                    }
-                    all_valve_data.append(extra_valve_data)
-                    st.write(f"DEBUG: Added extra valve V{extra_occurrence-2}")
-        
-        # If still no valve data found, create basic fallback
-        if not all_valve_data:
-            st.write("DEBUG: Creating fallback data...")
             # Create basic H and C entries
             basic_entries = [
                 {'end': 'H', 'rod': 'N/A'},
@@ -1202,7 +1130,6 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
                 all_valve_data.append(valve_data)
         
         # Create DataFrame
-        st.write(f"DEBUG: Total valve entries found: {len(all_valve_data)}")
         df = pd.DataFrame(all_valve_data)
         
         # Sort by cylinder end for consistent display
@@ -1211,10 +1138,7 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         return df
         
     except Exception as e:
-        st.warning(f"Could not generate comprehensive health report: {e}")
-        import traceback
-        st.write(f"DEBUG Exception: {traceback.format_exc()}")
-        
+        st.warning(f"Could not generate health report: {e}")
         # Return basic structure if everything fails
         return pd.DataFrame({
             'Cyl End': [f'{cylinder_index}H', f'{cylinder_index}C'],
