@@ -1844,12 +1844,17 @@ if validated_files:
                     
                     # Run rule-based diagnostics on the report data
                     suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
+                    
+                    # Display diagnostics if there are suggestions
                     if suggestions:
                         st.subheader("🛠 Rule‑Based Diagnostics")
                         for name, suggestion in suggestions.items():
                             st.warning(f"{name}: {suggestion}")
 
-                    # Compute and display a health score
+                    # Compute health score before using it
+                    health_score = compute_health_score(report_data, suggestions)
+
+                    # Now we can safely use health_score in alerts and metrics
                     check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                     st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
