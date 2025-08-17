@@ -46,12 +46,16 @@ def init_db():
         url = st.secrets["TURSO_DATABASE_URL"]
         auth_token = st.secrets["TURSO_AUTH_TOKEN"]
         client = libsql_client.create_client_sync(url=url, auth_token=auth_token)
+        
         client.batch([
             "CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, machine_id TEXT, rpm TEXT)",
             "CREATE TABLE IF NOT EXISTS analyses (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, anomaly_count INTEGER, threshold REAL, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, analysis_id INTEGER, label_text TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
-            "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, analysis_id INTEGER, event_type TEXT, crank_angle REAL, FOREIGN KEY (analysis_id) REFERENCES analyses (id))"
+            "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, analysis_id INTEGER, event_type TEXT, crank_angle REAL, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
+            "CREATE TABLE IF NOT EXISTS configs (machine_id TEXT PRIMARY KEY, contamination REAL DEFAULT 0.05, pressure_anom_limit INT DEFAULT 10, valve_anom_limit INT DEFAULT 5, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
+            "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
         ])
+        
         return client
     except KeyError:
         st.error("Database secrets (TURSO_DATABASE_URL, TURSO_AUTH_TOKEN) not found.")
@@ -696,15 +700,23 @@ def load_all_curves_data(_curves_xml_content):
         st.error(f"Failed to load curves data: {e}")
         return None, None
 
-def extract_rpm(_levels_xml_content):
+def extract_rpm_from_source(source_xml_content):
+    """
+    Extract RPM from SOURCE file - MATCHES YOUR WORKING METHOD
+    """
     try:
-        root = ET.fromstring(_levels_xml_content)
-        rpm_str = find_xml_value(root, 'Levels', 'RPM', 1)
-        if rpm_str != "N/A":
-            return f"{float(rpm_str):.0f}"
+        source_root = ET.fromstring(source_xml_content)
+        rated_rpm = find_xml_value(source_root, 'Source', 'COMPRESSOR RATED RPM', 2)
+        if rated_rpm and rated_rpm != "N/A":
+            try:
+                rpm_val = float(rated_rpm)
+                if 100 <= rpm_val <= 10000:  # Reasonable RPM range
+                    return f"{rpm_val:.0f}"
+            except (ValueError, TypeError):
+                pass
+        return "N/A"
     except Exception:
         return "N/A"
-    return "N/A"
 
 @st.cache_data
 def auto_discover_configuration(_source_xml_content, all_curve_names):
@@ -1452,7 +1464,315 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             st.error(f"Debug info: bore={bore}, stroke={stroke}, pressure_curve={pressure_curve}")
 
     return fig, report_data
+def render_ai_model_tuning_section(db_client, discovered_config):
+    """Enhanced AI Model Tuning with machine-specific configuration"""
+    st.markdown("---")
+    st.subheader("AI Model Tuning")
+    
+    # Get machine ID if available
+    machine_id = discovered_config.get('machine_id', 'N/A') if discovered_config else None
+    
+    if machine_id and machine_id != 'N/A':
+        st.markdown(f"**Machine-Specific Configuration** for `{machine_id}`")
+        
+        # Load existing config from database
+        try:
+            rs = db_client.execute("SELECT * FROM configs WHERE machine_id = ?", (machine_id,))
+            existing_config = rs.rows[0] if rs.rows else None
+        except Exception:
+            existing_config = None
+        
+        # Configuration inputs with saved values
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            contamination_level = st.slider(
+                "Anomaly Detection Sensitivity", 
+                min_value=0.01, 
+                max_value=0.20, 
+                value=existing_config[1] if existing_config else 0.05,
+                step=0.01,
+                help="Machine-specific sensitivity for anomaly detection"
+            )
+            
+            pressure_limit = st.number_input(
+                "Pressure Anomaly Threshold", 
+                min_value=1, 
+                max_value=50, 
+                value=existing_config[2] if existing_config else 10,
+                help="Maximum allowed pressure anomalies before alert"
+            )
+        
+        with col2:
+            valve_limit = st.number_input(
+                "Valve Anomaly Threshold", 
+                min_value=1, 
+                max_value=30, 
+                value=existing_config[3] if existing_config else 5,
+                help="Maximum allowed valve anomalies before alert"
+            )
+            
+            # Save button
+            if st.button("💾 Save Machine Configuration", type="primary"):
+                try:
+                    db_client.execute(
+                        "INSERT OR REPLACE INTO configs (machine_id, contamination, pressure_anom_limit, valve_anom_limit, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+                        (machine_id, contamination_level, pressure_limit, valve_limit)
+                    )
+                    st.success(f"✅ Configuration saved for {machine_id}")
+                    time.sleep(1)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Failed to save configuration: {e}")
+        
+        # Show if config was loaded
+        if existing_config:
+            st.info(f"📋 Using saved configuration (last updated: {existing_config[4] if len(existing_config) > 4 else 'Unknown'})")
+        else:
+            st.info("🆕 Using default values - save to create machine-specific configuration")
+            
+        return contamination_level, pressure_limit, valve_limit
+    
+    else:
+        # Fallback to original slider when no machine ID
+        st.info("ℹ️ Upload files to enable machine-specific configuration")
+        contamination_level = st.slider(
+            "Anomaly Detection Sensitivity", 
+            min_value=0.01, 
+            max_value=0.20, 
+            value=0.05,
+            step=0.01,
+            help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
+        )
+        return contamination_level, 10, 5  # Default limits
+
+def run_rule_based_diagnostics_enhanced(report_data, pressure_limit=10, valve_limit=5):
+    """Enhanced rule-based diagnostics using machine-specific thresholds"""
+    suggestions = {}
+    critical_alerts = []
+    
+    for item in report_data:
+        item_name = item['name']
+        anomaly_count = item['count']
+        
+        # Pressure-specific rules
+        if item_name == 'Pressure':
+            if anomaly_count > pressure_limit:
+                if anomaly_count > pressure_limit * 2:
+                    suggestions[item_name] = 'Valve Leakage'
+                    critical_alerts.append(f"CRITICAL: {item_name} has {anomaly_count} anomalies (limit: {pressure_limit})")
+                else:
+                    suggestions[item_name] = 'Valve Wear'
+        
+        # Valve-specific rules
+        elif item_name != 'Pressure':
+            if anomaly_count > valve_limit:
+                if 'Suction' in item_name:
+                    if anomaly_count > valve_limit * 2:
+                        suggestions[item_name] = 'Valve Sticking or Fouling'
+                        critical_alerts.append(f"CRITICAL: {item_name} has {anomaly_count} anomalies (limit: {valve_limit})")
+                    else:
+                        suggestions[item_name] = 'Valve Wear'
+                elif 'Discharge' in item_name:
+                    if anomaly_count > valve_limit * 1.5:
+                        suggestions[item_name] = 'Valve Impact or Slamming'
+                        critical_alerts.append(f"HIGH: {item_name} has {anomaly_count} anomalies (limit: {valve_limit})")
+                    else:
+                        suggestions[item_name] = 'Valve Wear'
+                else:
+                    suggestions[item_name] = 'Valve Wear'
+    
+    return suggestions, critical_alerts
+
+def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_alerts, health_score):
+    """Check for critical conditions and display in-app alerts"""
+    current_time = datetime.datetime.now()
+    
+    # Health score alert
+    if health_score < 40:
+        alert_msg = f"Health score critically low: {health_score:.1f}"
+        try:
+            db_client.execute(
+                "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (machine_id, cylinder_name, 'CRITICAL', alert_msg, current_time)
+            )
+        except:
+            pass
+        st.error(f"🚨 CRITICAL ALERT: {alert_msg}")
+    
+    elif health_score < 60:
+        alert_msg = f"Health score below normal: {health_score:.1f}"
+        try:
+            db_client.execute(
+                "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (machine_id, cylinder_name, 'WARNING', alert_msg, current_time)
+            )
+        except:
+            pass
+        st.warning(f"⚠️ WARNING: {alert_msg}")
+    
+    # Critical anomaly alerts
+    for alert in critical_alerts:
+        try:
+            db_client.execute(
+                "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (machine_id, cylinder_name, 'HIGH', alert, current_time)
+            )
+        except:
+            pass
+        st.error(f"🔥 {alert}")
+
+def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None, suggestions=None, health_score=None, critical_alerts=None):
+    """Enhanced PDF report generator with executive summary"""
+    if not REPORTLAB_AVAILABLE:
+        st.warning("ReportLab not installed. PDF generation unavailable.")
+        return None
+    
+    if suggestions is None: suggestions = {}
+    if health_score is None: health_score = 50.0
+    if critical_alerts is None: critical_alerts = []
+    
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Custom styles
+    title_style = styles['Title']
+    title_style.fontSize = 18
+    title_style.spaceAfter = 30
+    
+    heading_style = styles['Heading2']
+    heading_style.fontSize = 14
+    heading_style.spaceAfter = 12
+    heading_style.textColor = colors.darkblue
+    
+    # Title
+    story.append(Paragraph("MACHINE DIAGNOSTICS REPORT", title_style))
+    story.append(Spacer(1, 12))
+    
+    # Basic info table
+    basic_info = [
+        ['Machine ID:', machine_id],
+        ['Cylinder:', cylinder_name], 
+        ['RPM:', rpm],
+        ['Analysis Date:', datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]
+    ]
+    
+    basic_table = Table(basic_info, colWidths=[100, 200])
+    basic_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(basic_table)
+    story.append(Spacer(1, 20))
+    
+    # EXECUTIVE SUMMARY
+    story.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
+    
+    if health_score >= 85:
+        overall_status = 'EXCELLENT'
+        status_color = colors.green
+    elif health_score >= 70:
+        overall_status = 'GOOD'
+        status_color = colors.green
+    elif health_score >= 55:
+        overall_status = 'FAIR'
+        status_color = colors.orange
+    elif health_score >= 40:
+        overall_status = 'POOR'
+        status_color = colors.orangered
+    else:
+        overall_status = 'CRITICAL'
+        status_color = colors.red
+    
+    total_anomalies = sum(item.get('count', 0) for item in report_data)
+    exec_data = [
+        ['Overall Status:', overall_status],
+        ['Health Score:', f"{health_score:.1f}/100"],
+        ['Total Anomalies:', str(total_anomalies)],
+        ['Critical Issues:', str(len(critical_alerts))]
+    ]
+    
+    exec_table = Table(exec_data, colWidths=[120, 150])
+    exec_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('TEXTCOLOR', (1, 0), (1, 0), status_color),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.lightgrey),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightyellow),
+    ]))
+    story.append(exec_table)
+    story.append(Spacer(1, 15))
+    
+    # Critical Issues
+    if critical_alerts:
+        story.append(Paragraph("Critical Issues Identified:", styles['Heading3']))
+        for issue in critical_alerts[:5]:
+            story.append(Paragraph(f"• {issue}", styles['Normal']))
+        story.append(Spacer(1, 10))
+    
+    # Recommendations
+    story.append(Paragraph("Recommendations:", styles['Heading3']))
+    if health_score < 40:
+        recommendations = ["IMMEDIATE SHUTDOWN RECOMMENDED", "Emergency maintenance team contact required", "Full valve and cylinder inspection needed"]
+    elif health_score < 60:
+        recommendations = ["Schedule maintenance within 1-2 weeks", "Increase monitoring frequency", "Review operating parameters"]
+    else:
+        recommendations = ["Continue current maintenance schedule", "Equipment operating within acceptable parameters", "Monitor for trending changes"]
+    
+    for rec in recommendations:
+        story.append(Paragraph(f"• {rec}", styles['Normal']))
+    story.append(Spacer(1, 20))
+    
+    # Chart
+    if chart_fig:
+        try:
+            img_buffer = io.BytesIO()
+            chart_fig.write_image(img_buffer, format='png', width=800, height=500, scale=2)
+            img_buffer.seek(0)
+            from reportlab.platypus import Image
+            story.append(Paragraph("Diagnostic Chart", heading_style))
+            story.append(Image(img_buffer, width=500, height=312))
+            story.append(Spacer(1, 15))
+        except Exception as e:
+            story.append(Paragraph(f"Chart could not be generated. Error: {str(e)}", styles['Normal']))
+    
+    # Detailed Health Report
+    story.append(Paragraph("Detailed Health Report", heading_style))
+    if not health_report_df.empty:
+        table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph("No detailed health data available.", styles['Normal']))
+    
+    # Footer
+    story.append(Spacer(1, 30))
+    footer_text = f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d at %H:%M:%S')} | AI-Powered Machine Diagnostics Analyzer"
+    story.append(Paragraph(footer_text, styles['Normal']))
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
 # --- Main Application ---
+
 db_client = init_db()
 
 if 'active_session_id' not in st.session_state: st.session_state.active_session_id = None
@@ -1474,16 +1794,10 @@ with st.sidebar:
     
     clearance_pct = st.number_input("Clearance (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5, help="Estimated clearance volume as % of swept volume (MVP approximation).")
         
-    st.markdown("---")
-    st.subheader("AI Model Tuning")
-    contamination_level = st.slider(
-        "Anomaly Detection Sensitivity", 
-        min_value=0.01, 
-        max_value=0.20, 
-        value=0.05,
-        step=0.01,
-        help="Adjust the proportion of data points considered as anomalies. Higher values mean more sensitive detection."
-    )
+    if 'auto_discover_config' in st.session_state:
+        contamination_level, pressure_limit, valve_limit = render_ai_model_tuning_section(db_client, st.session_state['auto_discover_config'])
+    else:
+        contamination_level, pressure_limit, valve_limit = 0.05, 10, 5
 
 if validated_files:
     files_content = validated_files
@@ -1494,7 +1808,7 @@ if validated_files:
             discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
             if discovered_config:
                 st.session_state['auto_discover_config'] = discovered_config
-                rpm = extract_rpm(files_content['levels'])
+                rpm = discovered_config.get('rated_rpm', 'N/A')
                 machine_id = discovered_config.get('machine_id', 'N/A')
                 if st.session_state.active_session_id is None:
                     db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
@@ -1529,14 +1843,14 @@ if validated_files:
                     fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
                     
                     # Run rule-based diagnostics on the report data
-                    suggestions = run_rule_based_diagnostics(report_data)
+                    suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
                     if suggestions:
                         st.subheader("🛠 Rule‑Based Diagnostics")
                         for name, suggestion in suggestions.items():
                             st.warning(f"{name}: {suggestion}")
 
                     # Compute and display a health score
-                    health_score = compute_health_score(report_data, suggestions)
+                    check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                     st.metric("Health Score", f"{health_score:.1f}")
                     st.plotly_chart(fig, use_container_width=True)
 
@@ -1599,12 +1913,12 @@ if validated_files:
                                         st.rerun()
 
                     # Export and Cylinder Details
-                    st.header("📄 Export Report")
+                    
                     if st.button("🔄 Generate Report for this Cylinder", type="primary"):
-                        pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig)
+                        pdf_buffer = generate_pdf_report_enhanced(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
                         if pdf_buffer:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
-
+                    
                     st.markdown("---")
                     # Machine Info Block
                     cfg = st.session_state.get('auto_discover_config', {})
