@@ -22,6 +22,15 @@ import math
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
+# Initialize session state for persistent analysis
+if 'analysis_complete' not in st.session_state:
+    st.session_state.analysis_complete = False
+if 'current_analysis_data' not in st.session_state:
+    st.session_state.current_analysis_data = {}
+if 'file_uploader_key' not in st.session_state:
+    st.session_state.file_uploader_key = 0
+if 'active_session_id' not in st.session_state:
+    st.session_state.active_session_id = None
 
 # --- Global Configuration & Constants ---
 FAULT_LABELS = [
@@ -1732,65 +1741,134 @@ with st.sidebar:
 
 if validated_files:
     files_content = validated_files
-
     if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
-        df, actual_curve_names = load_all_curves_data(files_content['curves'])
-        if df is not None:
-            discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
-            if discovered_config:
-                st.session_state['auto_discover_config'] = discovered_config
-                rpm = extract_rpm(files_content['levels'])
-                machine_id = discovered_config.get('machine_id', 'N/A')
-                if st.session_state.active_session_id is None:
-                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-                    st.session_state.active_session_id = get_last_row_id(db_client)
-                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-                cylinders = discovered_config.get("cylinders", [])
-                cylinder_names = [c.get("cylinder_name") for c in cylinders]
-                with st.sidebar:
-                    selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
+        
+        # Store validated files in session state
+        st.session_state.current_analysis_data['files_content'] = files_content
+        
+        # Only run heavy processing if not already done or if files changed
+        if (not st.session_state.analysis_complete or 
+            st.session_state.current_analysis_data.get('files_content') != files_content):
+            
+            # Show processing status
+            with st.spinner("🔄 Processing data..."):
+                df, actual_curve_names = load_all_curves_data(files_content['curves'])
+                if df is not None:
+                    discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
+                    if discovered_config:
+                        # Store all analysis data in session state
+                        st.session_state.current_analysis_data.update({
+                            'df': df,
+                            'discovered_config': discovered_config,
+                            'actual_curve_names': actual_curve_names
+                        })
+                        
+                        rpm = extract_rpm(files_content['levels'])
+                        machine_id = discovered_config.get('machine_id', 'N/A')
+                        
+                        # Database session management
+                        if st.session_state.active_session_id is None:
+                            db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                            st.session_state.active_session_id = get_last_row_id(db_client)
+                            st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+                        
+                        st.session_state.analysis_complete = True
+                        st.success("✅ Data processing complete!")
+        
+        # Use stored data for all UI interactions
+        if st.session_state.analysis_complete and 'df' in st.session_state.current_analysis_data:
+            df = st.session_state.current_analysis_data['df']
+            discovered_config = st.session_state.current_analysis_data['discovered_config']
+            
+            cylinders = discovered_config.get("cylinders", [])
+            cylinder_names = [c.get("cylinder_name") for c in cylinders]
+            
+            with st.sidebar:
+                selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
+            
+            selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
+            
+            if selected_cylinder_config:
+                # Generate real-time analysis with current widget values
+                fig, temp_report_data = generate_cylinder_view(
+                    db_client, df.copy(), selected_cylinder_config, 
+                    envelope_view, vertical_offset, {}, contamination_level, 
+                    view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay
+                )
                 
-                selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
-
-                if selected_cylinder_config:
-                    # Generate plot and initial data
-                    _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
-                    
-                    # Create or update analysis records in DB
-                    analysis_ids = {}
-                    for item in temp_report_data:
-                        rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                        existing_id_row = rs.rows[0] if rs.rows else None
-                        if existing_id_row:
-                            analysis_id = existing_id_row[0]
-                            db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", (item['count'], item['threshold'], analysis_id))
-                        else:
-                            db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
-                            analysis_id = get_last_row_id(db_client)
-                        analysis_ids[item['name']] = analysis_id
-                    
-                    # Regenerate plot with correct analysis_ids
-                    fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
-                    
-                    # Run rule-based diagnostics on the report data
-                    suggestions = run_rule_based_diagnostics(report_data)
-                    if suggestions:
-                        st.subheader("🛠 Rule‑Based Diagnostics")
-                        for name, suggestion in suggestions.items():
-                            st.warning(f"{name}: {suggestion}")
-
-                    # Compute and display a health score
-                    health_score = compute_health_score(report_data, suggestions)
-                    st.metric("Health Score", f"{health_score:.1f}")
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    # Display health report
-                    st.subheader("📋 Compressor Health Report")
-                    cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
-                    health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
-                    if not health_report_df.empty:
-                        st.dataframe(health_report_df, use_container_width=True, hide_index=True)
+                # Store current analysis results
+                st.session_state.current_analysis_data.update({
+                    'report_data': temp_report_data,
+                    'selected_cylinder_config': selected_cylinder_config,
+                    'selected_cylinder_name': selected_cylinder_name
+                })
+                
+                # Database operations (only when needed)
+                analysis_ids = {}
+                for item in temp_report_data:
+                    rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", 
+                                         (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                    existing_id_row = rs.rows[0] if rs.rows else None
+                    if existing_id_row:
+                        analysis_id = existing_id_row[0]
+                        db_client.execute("UPDATE analyses SET anomaly_count = ?, threshold = ? WHERE id = ?", 
+                                        (item['count'], item['threshold'], analysis_id))
+                    else:
+                        db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", 
+                                        (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
+                        analysis_id = get_last_row_id(db_client)
+                    analysis_ids[item['name']] = analysis_id
+                
+                # Generate updated plot with database IDs
+                fig, report_data = generate_cylinder_view(
+                    db_client, df.copy(), selected_cylinder_config, 
+                    envelope_view, vertical_offset, analysis_ids, contamination_level, 
+                    view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay
+                )
+                
+                # Run diagnostics
+                suggestions = run_rule_based_diagnostics(report_data)
+                if suggestions:
+                    st.subheader("🛠 Rule‑Based Diagnostics")
+                    for name, suggestion in suggestions.items():
+                        st.warning(f"{name}: {suggestion}")
+                
+                # Compute and display health score
+                health_score = compute_health_score(report_data, suggestions)
+                st.metric("Health Score", f"{health_score:.1f}")
+                
+                # Display the chart
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Health report
+                st.subheader("📋 Compressor Health Report")
+                cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
+                health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
+                if not health_report_df.empty:
+                    st.dataframe(health_report_df, use_container_width=True, hide_index=True)
+                
+                # PDF Download with enhanced executive summary
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("📄 Download PDF Report", type="secondary", use_container_width=True):
+                        machine_id = discovered_config.get('machine_id', 'N/A')
+                        rpm = extract_rpm(files_content['levels'])
+                        
+                        # Generate PDF with executive summary
+                        pdf_buffer = generate_pdf_report(
+                            machine_id, rpm, selected_cylinder_name, 
+                            report_data, health_report_df, fig, 
+                            suggestions, health_score
+                        )
+                        
+                        if pdf_buffer:
+                            st.download_button(
+                                label="📥 Download Report",
+                                data=pdf_buffer,
+                                file_name=f"diagnostic_report_{machine_id}_{selected_cylinder_name}_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                                mime="application/pdf"
+                            )
+                            st.success("✅ PDF report generated successfully!")
 
                     # Labeling and event marking
                     with st.expander("Add labels and mark valve events"):
@@ -1888,7 +1966,13 @@ if validated_files:
     else:
         st.error("Please ensure all three XML files (curves, levels, source) are uploaded.")
 else:
-    st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
+    # Show upload interface when no files
+    st.info("👆 Please upload your XML files using the sidebar to begin analysis")
+    
+    # Reset analysis state when no files
+    if st.session_state.analysis_complete:
+        st.session_state.analysis_complete = False
+        st.session_state.current_analysis_data = {}
 
 # Historical Trend Analysis
 st.markdown("---")
