@@ -1777,22 +1777,71 @@ db_client = init_db()
 
 if 'active_session_id' not in st.session_state: st.session_state.active_session_id = None
 if 'file_uploader_key' not in st.session_state: st.session_state.file_uploader_key = 0
-
+if 'last_settings_update' not in st.session_state: st.session_state.last_settings_update = datetime.datetime.now()
+if 'settings_changed' not in st.session_state: st.session_state.settings_changed = False
+    
 st.title("⚙️ AI-Powered Machine Diagnostics Analyzer")
 st.markdown("Upload your machine's XML data files. The configuration will be discovered automatically.")
 
 with st.sidebar:
     validated_files = enhanced_file_upload_section()
 
+    def trigger_rerun():
+    st.session_state.settings_changed = True
+
+with st.sidebar:
+    validated_files = enhanced_file_upload_section()
+
     st.header("2. View Options")
-    envelope_view = st.checkbox("Enable Envelope View", value=True)
-    vertical_offset = st.slider("Vertical Offset", 0.0, 5.0, 1.0, 0.1)
-    view_mode = st.radio("View Mode", ["Crank-angle", "P-V"], index=0)
+    envelope_view = st.checkbox(
+        "Enable Envelope View",
+        value=True,
+        key='envelope_view',
+        on_change=trigger_rerun
+    )
+    vertical_offset = st.slider(
+        "Vertical Offset",
+        0.0, 5.0, 1.0, 0.1,
+        key='vertical_offset',
+        on_change=trigger_rerun
+    )
+    view_mode = st.radio(
+        "View Mode",
+        ["Crank-angle", "P-V"],
+        index=0,
+        key='view_mode',
+        on_change=trigger_rerun
+    )
     show_pv_overlay = False
     if view_mode == "Crank-angle":
-        show_pv_overlay = st.checkbox("🔄 Show P-V Overlay", value=False, help="Show P-V diagram as overlay on crank-angle view")
+        show_pv_overlay = st.checkbox(
+            "🔄 Show P-V Overlay",
+            value=False,
+            key='pv_overlay',
+            on_change=trigger_rerun,
+            help="Show P-V diagram as overlay on crank-angle view"
+        )
     
-    clearance_pct = st.number_input("Clearance (%)", min_value=0.0, max_value=20.0, value=5.0, step=0.5, help="Estimated clearance volume as % of swept volume (MVP approximation).")
+    clearance_pct = st.number_input(
+        "Clearance (%)",
+        min_value=0.0,
+        max_value=20.0,
+        value=5.0,
+        step=0.5,
+        key='clearance_pct',
+        on_change=trigger_rerun,
+        help="Estimated clearance volume as % of swept volume (MVP approximation)."
+    )
+    
+    if 'auto_discover_config' in st.session_state:
+        contamination_level, pressure_limit, valve_limit = render_ai_model_tuning_section(db_client, st.session_state['auto_discover_config'])
+    else:
+        contamination_level, pressure_limit, valve_limit = 0.05, 10, 5
+
+    # Add this at the bottom of your sidebar section
+    if st.session_state.settings_changed:
+        st.session_state.settings_changed = False
+        st.rerun()
         
     if 'auto_discover_config' in st.session_state:
         contamination_level, pressure_limit, valve_limit = render_ai_model_tuning_section(db_client, st.session_state['auto_discover_config'])
@@ -1918,11 +1967,14 @@ if validated_files:
                                         st.rerun()
 
                     # Export and Cylinder Details
-                    
-                    if st.button("🔄 Generate Report for this Cylinder", type="primary"):
+                                        
+                    if st.button("🔄 Generate Report for this Cylinder", type="primary", key='gen_report'):
                         pdf_buffer = generate_pdf_report_enhanced(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
                         if pdf_buffer:
-                            st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf")
+                            st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
+                            st.session_state.settings_changed = True
+                            st.rerun()
+
                     
                     st.markdown("---")
                     # Machine Info Block
