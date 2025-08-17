@@ -1786,19 +1786,20 @@ st.markdown("Upload your machine's XML data files. The configuration will be dis
 with st.sidebar:
     validated_files = enhanced_file_upload_section()
 
-def trigger_rerun():
-    st.session_state.settings_changed = True
-
-with st.sidebar:
-    validated_files = enhanced_file_upload_section()
+    if st.session_state.analysis_results is not None:
+        if st.button("🔄 Start New Analysis", type="secondary"):
+            st.session_state.analysis_results = None
+            st.session_state.active_session_id = None
+            if 'auto_discover_config' in st.session_state:
+                del st.session_state['auto_discover_config']
+            st.rerun()
 
     st.header("2. View Options")
     envelope_view = st.checkbox(
         "Enable Envelope View",
         value=True,
-        key='envelope_view',
-        on_change=trigger_rerun
-    )
+        key='envelope_view')
+    
     vertical_offset = st.slider(
         "Vertical Offset",
         0.0, 5.0, 1.0, 0.1,
@@ -1839,33 +1840,61 @@ with st.sidebar:
         contamination_level, pressure_limit, valve_limit = 0.05, 10, 5
 
     # Add this at the bottom of your sidebar section
-    if st.session_state.settings_changed:
-        st.session_state.settings_changed = False
-        st.rerun()
-        
+            
     if 'auto_discover_config' in st.session_state:
         contamination_level, pressure_limit, valve_limit = render_ai_model_tuning_section(db_client, st.session_state['auto_discover_config'])
     else:
         contamination_level, pressure_limit, valve_limit = 0.05, 10, 5
 
+# Initialize session state for analysis results
+if 'analysis_results' not in st.session_state:
+    st.session_state.analysis_results = None
+
 if validated_files:
     files_content = validated_files
 
     if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
-        df, actual_curve_names = load_all_curves_data(files_content['curves'])
-        if df is not None:
-            discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
-            if discovered_config:
-                st.session_state['auto_discover_config'] = discovered_config
-                rpm = discovered_config.get('rated_rpm', 'N/A')
-                machine_id = discovered_config.get('machine_id', 'N/A')
-                if st.session_state.active_session_id is None:
-                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-                    st.session_state.active_session_id = get_last_row_id(db_client)
-                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-                cylinders = discovered_config.get("cylinders", [])
-                cylinder_names = [c.get("cylinder_name") for c in cylinders]
+        
+        # Only run heavy analysis if not already done
+        if st.session_state.analysis_results is None:
+            with st.spinner("🔄 Processing data..."):
+                df, actual_curve_names = load_all_curves_data(files_content['curves'])
+                if df is not None:
+                    discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
+                    if discovered_config:
+                        st.session_state['auto_discover_config'] = discovered_config
+                        rpm = discovered_config.get('rated_rpm', 'N/A')
+                        machine_id = discovered_config.get('machine_id', 'N/A')
+                        
+                        if st.session_state.active_session_id is None:
+                            db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                            st.session_state.active_session_id = get_last_row_id(db_client)
+                            st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+                        
+                        # Store all analysis results in session state
+                        st.session_state.analysis_results = {
+                            'df': df,
+                            'discovered_config': discovered_config,
+                            'actual_curve_names': actual_curve_names,
+                            'files_content': files_content,
+                            'rpm': rpm,
+                            'machine_id': machine_id
+                        }
+                        st.success("✅ Analysis complete! Settings can now be changed without refreshing.")
+        
+        # Use stored results for all UI operations
+        if st.session_state.analysis_results:
+            df = st.session_state.analysis_results['df']
+            discovered_config = st.session_state.analysis_results['discovered_config']
+            files_content = st.session_state.analysis_results['files_content']
+            rpm = st.session_state.analysis_results['rpm']
+            machine_id = st.session_state.analysis_results['machine_id']
+            
+            # Continue with your existing analysis logic here...
+            cylinders = discovered_config.get("cylinders", [])
+            cylinder_names = [c.get("cylinder_name") for c in cylinders]
+            
+            # Rest of your existing code stays the same...
                 with st.sidebar:
                     selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
                 
@@ -1973,7 +2002,7 @@ if validated_files:
                         if pdf_buffer:
                             st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
                             st.session_state.settings_changed = True
-                            st.rerun()
+                            
 
                     
                     st.markdown("---")
