@@ -62,6 +62,92 @@ def init_db():
 
 # --- Helper Functions ---
 
+def generate_executive_summary(machine_id, cylinder_name, health_score, report_data, suggestions):
+    """
+    Generates executive summary data for PDF reports
+    """
+    summary = {
+        'overall_status': 'UNKNOWN',
+        'health_score': health_score,
+        'total_anomalies': 0,
+        'critical_issues': [],
+        'top_diagnostics': [],
+        'recommendations': [],
+        'next_actions': []
+    }
+    
+    # Calculate total anomalies
+    total_anomalies = sum(item.get('count', 0) for item in report_data)
+    summary['total_anomalies'] = total_anomalies
+    
+    # Determine overall status based on health score
+    if health_score >= 80:
+        summary['overall_status'] = 'GOOD'
+    elif health_score >= 60:
+        summary['overall_status'] = 'FAIR'
+    elif health_score >= 40:
+        summary['overall_status'] = 'POOR'
+    else:
+        summary['overall_status'] = 'CRITICAL'
+    
+    # Identify critical issues (high anomaly counts)
+    for item in report_data:
+        if item.get('count', 0) > 10:  # Threshold for critical
+            summary['critical_issues'].append(f"{item['name']}: {item['count']} anomalies detected")
+    
+    # Get top 3 diagnostics from suggestions
+    diagnostic_items = list(suggestions.items())[:3]
+    for name, diagnosis in diagnostic_items:
+        summary['top_diagnostics'].append(f"{name}: {diagnosis}")
+    
+    # Generate recommendations based on status
+    if summary['overall_status'] == 'CRITICAL':
+        summary['recommendations'] = [
+            "Immediate maintenance attention required",
+            "Consider equipment shutdown for inspection",
+            "Schedule detailed valve inspection"
+        ]
+        summary['next_actions'] = [
+            "Contact maintenance team within 24 hours",
+            "Perform detailed diagnostic analysis",
+            "Plan maintenance shutdown"
+        ]
+    elif summary['overall_status'] == 'POOR':
+        summary['recommendations'] = [
+            "Schedule maintenance within 1-2 weeks",
+            "Monitor equipment closely",
+            "Increase inspection frequency"
+        ]
+        summary['next_actions'] = [
+            "Schedule maintenance inspection",
+            "Continue monitoring",
+            "Review operating parameters"
+        ]
+    elif summary['overall_status'] == 'FAIR':
+        summary['recommendations'] = [
+            "Schedule routine maintenance",
+            "Monitor trending parameters",
+            "Consider minor adjustments"
+        ]
+        summary['next_actions'] = [
+            "Plan routine maintenance",
+            "Track performance trends",
+            "Optimize operating conditions"
+        ]
+    else:  # GOOD
+        summary['recommendations'] = [
+            "Continue current maintenance schedule",
+            "Equipment operating normally",
+            "Monitor for any changes"
+        ]
+        summary['next_actions'] = [
+            "Maintain current schedule",
+            "Continue routine monitoring",
+            "No immediate action required"
+        ]
+    
+    return summary
+
 # ADD THESE NEW FUNCTIONS to your app.py file (add them near your other helper functions):
 
 def validate_xml_files(uploaded_files):
@@ -991,33 +1077,192 @@ def get_all_cylinder_details(_source_xml_content, _levels_xml_content, num_cylin
         st.warning(f"Could not extract cylinder details: {e}")
         return []
 
-def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None):
+def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None, suggestions=None, health_score=None):
+    """
+    Enhanced PDF report generator with executive summary
+    """
     if not REPORTLAB_AVAILABLE:
         st.warning("ReportLab not installed. PDF generation unavailable.")
         return None
+    
+    # Set default values
+    if suggestions is None:
+        suggestions = {}
+    if health_score is None:
+        health_score = 50.0
+    
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
     styles = getSampleStyleSheet()
     story = []
-    story.append(Paragraph(f"Machine Diagnostics Report - {machine_id}", styles['Title']))
-    info_text = f"<b>RPM:</b> {rpm}<br/><b>Cylinder:</b> {cylinder_name}"
-    story.append(Paragraph(info_text, styles['Normal']))
+    
+    # Custom styles
+    title_style = styles['Title']
+    title_style.fontSize = 18
+    title_style.spaceAfter = 30
+    
+    heading_style = styles['Heading2']
+    heading_style.fontSize = 14
+    heading_style.spaceAfter = 12
+    heading_style.textColor = colors.darkblue
+    
+    # Title
+    story.append(Paragraph("MACHINE DIAGNOSTICS REPORT", title_style))
     story.append(Spacer(1, 12))
+    
+    # Basic info table
+    basic_info = [
+        ['Machine ID:', machine_id],
+        ['Cylinder:', cylinder_name], 
+        ['RPM:', rpm],
+        ['Analysis Date:', datetime.datetime.now().strftime("%Y-%m-%d %H:%M")]
+    ]
+    
+    basic_table = Table(basic_info, colWidths=[100, 200])
+    basic_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+    ]))
+    story.append(basic_table)
+    story.append(Spacer(1, 20))
+    
+    # EXECUTIVE SUMMARY SECTION
+    executive_summary = generate_executive_summary(machine_id, cylinder_name, health_score, report_data, suggestions)
+    
+    story.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
+    
+    # Status box with color coding
+    status_color = colors.red
+    if executive_summary['overall_status'] == 'GOOD':
+        status_color = colors.green
+    elif executive_summary['overall_status'] == 'FAIR':
+        status_color = colors.orange
+    elif executive_summary['overall_status'] == 'POOR':
+        status_color = colors.orangered
+    
+    # Executive summary table
+    exec_data = [
+        ['Overall Status:', executive_summary['overall_status']],
+        ['Health Score:', f"{executive_summary['health_score']:.1f}/100"],
+        ['Total Anomalies:', str(executive_summary['total_anomalies'])],
+    ]
+    
+    exec_table = Table(exec_data, colWidths=[120, 150])
+    exec_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),  # Status value bold
+        ('FONTSIZE', (0, 0), (-1, -1), 11),
+        ('TEXTCOLOR', (1, 0), (1, 0), status_color),  # Color code status
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.lightgrey),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightyellow),
+    ]))
+    story.append(exec_table)
+    story.append(Spacer(1, 15))
+    
+    # Critical Issues
+    if executive_summary['critical_issues']:
+        story.append(Paragraph("Critical Issues Identified:", styles['Heading3']))
+        for issue in executive_summary['critical_issues']:
+            story.append(Paragraph(f"• {issue}", styles['Normal']))
+        story.append(Spacer(1, 10))
+    
+    # Top Diagnostics
+    if executive_summary['top_diagnostics']:
+        story.append(Paragraph("Key Diagnostic Findings:", styles['Heading3']))
+        for finding in executive_summary['top_diagnostics']:
+            story.append(Paragraph(f"• {finding}", styles['Normal']))
+        story.append(Spacer(1, 10))
+    
+    # Recommendations
+    story.append(Paragraph("Recommendations:", styles['Heading3']))
+    for rec in executive_summary['recommendations']:
+        story.append(Paragraph(f"• {rec}", styles['Normal']))
+    story.append(Spacer(1, 10))
+    
+    # Next Actions
+    story.append(Paragraph("Next Actions:", styles['Heading3']))
+    for action in executive_summary['next_actions']:
+        story.append(Paragraph(f"• {action}", styles['Normal']))
+    
+    story.append(Spacer(1, 20))
+    
+    # Chart
     if chart_fig:
-        img_buffer = io.BytesIO()
-        chart_fig.write_image(img_buffer, format='png')
-        img_buffer.seek(0)
-        from reportlab.platypus import Image
-        story.append(Image(img_buffer, width=450, height=250))
-    story.append(Spacer(1, 12))
-    story.append(Paragraph("Health Report", styles['h2']))
-    table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
-    table = Table(table_data)
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                           ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                           ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                           ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
-    story.append(table)
+        try:
+            img_buffer = io.BytesIO()
+            chart_fig.write_image(img_buffer, format='png', width=500, height=300)
+            img_buffer.seek(0)
+            from reportlab.platypus import Image
+            story.append(Paragraph("Diagnostic Chart", heading_style))
+            story.append(Image(img_buffer, width=450, height=270))
+            story.append(Spacer(1, 15))
+        except Exception as e:
+            story.append(Paragraph(f"Chart generation error: {e}", styles['Normal']))
+    
+    # Detailed Health Report
+    story.append(Paragraph("Detailed Health Report", heading_style))
+    
+    if not health_report_df.empty:
+        # Convert DataFrame to table data
+        table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
+        
+        # Create table
+        table = Table(table_data)
+        table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(table)
+    else:
+        story.append(Paragraph("No detailed health data available.", styles['Normal']))
+    
+    story.append(Spacer(1, 20))
+    
+    # Anomaly Details
+    if report_data:
+        story.append(Paragraph("Anomaly Analysis Details", heading_style))
+        
+        anomaly_data = [['Component', 'Anomaly Count', 'Threshold', 'Unit', 'Status']]
+        for item in report_data:
+            status = "⚠️ High" if item.get('count', 0) > 5 else "✓ Normal"
+            anomaly_data.append([
+                item.get('name', 'Unknown'),
+                str(item.get('count', 0)),
+                f"{item.get('threshold', 0):.2f}",
+                item.get('unit', ''),
+                status
+            ])
+        
+        anomaly_table = Table(anomaly_data)
+        anomaly_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.lightblue),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.lightblue, colors.white])
+        ]))
+        story.append(anomaly_table)
+    
+    # Footer
+    story.append(Spacer(1, 30))
+    footer_text = f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d at %H:%M:%S')} | AI-Powered Machine Diagnostics Analyzer"
+    story.append(Paragraph(footer_text, styles['Normal']))
+    
+    # Build PDF
     doc.build(story)
     buffer.seek(0)
     return buffer
