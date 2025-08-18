@@ -1073,6 +1073,12 @@ def render_cylinder_selection_sidebar(cylinders_config):
     else:
         print(f"DEBUG: Cylinder 1 not found, using first available: {cylinder_names[0]}")
     
+    
+    # Find default index for Cylinder 1
+    default_index = 0
+    if "Cylinder 1" in cylinder_names:
+        default_index = cylinder_names.index("Cylinder 1")
+
     selected_cylinder_name = st.sidebar.selectbox(
         "Select Cylinder for Detailed View", 
         cylinder_names,
