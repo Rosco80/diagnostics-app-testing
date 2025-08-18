@@ -82,6 +82,96 @@ def init_db():
 
 # --- Helper Functions ---
 
+# ADD this new function to your app.py file (add it near your other helper functions):
+
+def generate_executive_summary(machine_id, cylinder_name, health_score, report_data, suggestions):
+    """
+    Generates executive summary data for PDF reports
+    """
+    summary = {
+        'overall_status': 'UNKNOWN',
+        'health_score': health_score,
+        'total_anomalies': 0,
+        'critical_issues': [],
+        'top_diagnostics': [],
+        'recommendations': [],
+        'next_actions': []
+    }
+    
+    # Calculate total anomalies
+    total_anomalies = sum(item.get('count', 0) for item in report_data)
+    summary['total_anomalies'] = total_anomalies
+    
+    # Determine overall status based on health score
+    if health_score >= 85:
+        summary['overall_status'] = 'EXCELLENT'
+    elif health_score >= 70:
+        summary['overall_status'] = 'GOOD'
+    elif health_score >= 55:
+        summary['overall_status'] = 'FAIR'
+    elif health_score >= 40:
+        summary['overall_status'] = 'POOR'
+    else:
+        summary['overall_status'] = 'CRITICAL'
+    
+    # Identify critical issues (high anomaly counts)
+    for item in report_data:
+        if item.get('count', 0) > 10:  # Threshold for critical
+            summary['critical_issues'].append(f"{item['name']}: {item['count']} anomalies detected")
+    
+    # Get top 3 diagnostics from suggestions
+    diagnostic_items = list(suggestions.items())[:3]
+    for name, diagnosis in diagnostic_items:
+        summary['top_diagnostics'].append(f"{name}: {diagnosis}")
+    
+    # Generate recommendations based on status
+    if summary['overall_status'] == 'CRITICAL':
+        summary['recommendations'] = [
+            "Immediate maintenance attention required",
+            "Consider equipment shutdown for inspection",
+            "Schedule detailed valve inspection"
+        ]
+        summary['next_actions'] = [
+            "Contact maintenance team within 24 hours",
+            "Perform detailed diagnostic analysis",
+            "Plan maintenance shutdown"
+        ]
+    elif summary['overall_status'] == 'POOR':
+        summary['recommendations'] = [
+            "Schedule maintenance within 1-2 weeks",
+            "Monitor equipment closely",
+            "Increase inspection frequency"
+        ]
+        summary['next_actions'] = [
+            "Schedule maintenance inspection",
+            "Continue monitoring",
+            "Review operating parameters"
+        ]
+    elif summary['overall_status'] == 'FAIR':
+        summary['recommendations'] = [
+            "Schedule routine maintenance",
+            "Monitor trending parameters",
+            "Consider minor adjustments"
+        ]
+        summary['next_actions'] = [
+            "Plan routine maintenance",
+            "Track performance trends",
+            "Optimize operating conditions"
+        ]
+    else:  # GOOD or EXCELLENT
+        summary['recommendations'] = [
+            "Continue current maintenance schedule",
+            "Equipment operating within normal parameters",
+            "Monitor for any trending changes"
+        ]
+        summary['next_actions'] = [
+            "Maintain current schedule",
+            "Continue routine monitoring",
+            "No immediate action required"
+        ]
+    
+    return summary
+
 def extract_rpm(levels_xml_content):
     """Extract RPM from levels file"""
     try:
@@ -1070,36 +1160,285 @@ def get_all_cylinder_details(_source_xml_content, _levels_xml_content, num_cylin
         st.warning(f"Could not extract cylinder details: {e}")
         return []
 
-def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None):
+def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None, suggestions=None, health_score=None, critical_alerts=None):
+    """
+    Enhanced PDF report generator with improved UI and executive summary
+    """
     if not REPORTLAB_AVAILABLE:
         st.warning("ReportLab not installed. PDF generation unavailable.")
         return None
+    
+    # Set default values
+    if suggestions is None:
+        suggestions = {}
+    if health_score is None:
+        health_score = 50.0
+    if critical_alerts is None:
+        critical_alerts = []
+    
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4)
+    doc = SimpleDocTemplate(
+        buffer, 
+        pagesize=A4, 
+        rightMargin=50, 
+        leftMargin=50, 
+        topMargin=50, 
+        bottomMargin=50
+    )
     styles = getSampleStyleSheet()
     story = []
-    story.append(Paragraph(f"Machine Diagnostics Report - {machine_id}", styles['Title']))
-    info_text = f"<b>RPM:</b> {rpm}<br/><b>Cylinder:</b> {cylinder_name}"
-    story.append(Paragraph(info_text, styles['Normal']))
-    story.append(Spacer(1, 12))
+    
+    # Enhanced custom styles for better formatting
+    title_style = styles['Title']
+    title_style.fontSize = 20
+    title_style.spaceAfter = 20
+    title_style.alignment = 1  # Center alignment
+    title_style.textColor = colors.darkblue
+    
+    heading_style = styles['Heading2']
+    heading_style.fontSize = 14
+    heading_style.spaceAfter = 12
+    heading_style.spaceBefore = 16
+    heading_style.textColor = colors.darkblue
+    heading_style.borderWidth = 1
+    heading_style.borderColor = colors.lightgrey
+    heading_style.borderPadding = 8
+    heading_style.backColor = colors.lightgrey
+    
+    subheading_style = styles['Heading3']
+    subheading_style.fontSize = 12
+    subheading_style.spaceAfter = 8
+    subheading_style.spaceBefore = 12
+    subheading_style.textColor = colors.darkblue
+    
+    # Header with title and logo space
+    story.append(Paragraph("MACHINE DIAGNOSTICS REPORT", title_style))
+    story.append(Spacer(1, 20))
+    
+    # Basic info in a well-formatted table
+    basic_info = [
+        ['Machine ID:', machine_id, 'Analysis Date:', datetime.datetime.now().strftime("%Y-%m-%d %H:%M")],
+        ['Cylinder:', cylinder_name, 'RPM:', str(rpm)],
+    ]
+    
+    basic_table = Table(basic_info, colWidths=[80, 120, 80, 120])
+    basic_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),  # First column bold
+        ('FONTNAME', (2, 0), (2, -1), 'Helvetica-Bold'),  # Third column bold
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ('TOPPADDING', (0, 0), (-1, -1), 8),
+        ('GRID', (0, 0), (-1, -1), 1, colors.lightgrey),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.white),
+        ('ROWBACKGROUNDS', (0, 0), (-1, -1), [colors.lightblue, colors.white])
+    ]))
+    story.append(basic_table)
+    story.append(Spacer(1, 25))
+    
+    # EXECUTIVE SUMMARY SECTION with enhanced formatting
+    executive_summary = generate_executive_summary(machine_id, cylinder_name, health_score, report_data, suggestions)
+    
+    story.append(Paragraph("EXECUTIVE SUMMARY", heading_style))
+    story.append(Spacer(1, 10))
+    
+    # Status box with improved color coding and layout
+    status_color = colors.red
+    status_bg_color = colors.pink
+    if executive_summary['overall_status'] in ['EXCELLENT', 'GOOD']:
+        status_color = colors.green
+        status_bg_color = colors.lightgreen
+    elif executive_summary['overall_status'] == 'FAIR':
+        status_color = colors.orange
+        status_bg_color = colors.lightyellow
+    elif executive_summary['overall_status'] == 'POOR':
+        status_color = colors.orangered
+        status_bg_color = colors.mistyrose
+    
+    # Executive summary table with better spacing
+    exec_data = [
+        ['Overall Status:', executive_summary['overall_status']],
+        ['Health Score:', f"{executive_summary['health_score']:.1f}/100"],
+        ['Total Anomalies:', str(executive_summary['total_anomalies'])],
+        ['Critical Issues:', str(len(critical_alerts))]
+    ]
+    
+    exec_table = Table(exec_data, colWidths=[150, 200])
+    exec_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTNAME', (1, 0), (1, 0), 'Helvetica-Bold'),  # Status value bold
+        ('FONTSIZE', (0, 0), (-1, -1), 12),
+        ('TEXTCOLOR', (1, 0), (1, 0), status_color),  # Color code status
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('GRID', (0, 0), (-1, -1), 1.5, colors.grey),
+        ('BACKGROUND', (0, 0), (-1, -1), status_bg_color),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ]))
+    story.append(exec_table)
+    story.append(Spacer(1, 20))
+    
+    # Critical Issues section with better formatting
+    if executive_summary['critical_issues']:
+        story.append(Paragraph("🚨 Critical Issues Identified", subheading_style))
+        for issue in executive_summary['critical_issues'][:5]:  # Limit to 5 issues
+            story.append(Paragraph(f"• {issue}", styles['Normal']))
+        story.append(Spacer(1, 12))
+    
+    # Top Diagnostics in a structured format
+    if executive_summary['top_diagnostics']:
+        story.append(Paragraph("🔍 Key Diagnostic Findings", subheading_style))
+        for finding in executive_summary['top_diagnostics']:
+            story.append(Paragraph(f"• {finding}", styles['Normal']))
+        story.append(Spacer(1, 12))
+    
+    # Recommendations in a formatted box
+    story.append(Paragraph("📋 Recommendations", subheading_style))
+    rec_data = [[f"• {rec}"] for rec in executive_summary['recommendations'][:4]]  # Limit to 4
+    rec_table = Table(rec_data, colWidths=[450])
+    rec_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightyellow),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    story.append(rec_table)
+    story.append(Spacer(1, 15))
+    
+    # Next Actions in a formatted box
+    story.append(Paragraph("⚡ Next Actions", subheading_style))
+    action_data = [[f"• {action}"] for action in executive_summary['next_actions'][:4]]  # Limit to 4
+    action_table = Table(action_data, colWidths=[450])
+    action_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightcyan),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+    ]))
+    story.append(action_table)
+    story.append(Spacer(1, 25))
+    
+    # Chart section with better integration
     if chart_fig:
-        img_buffer = io.BytesIO()
-        chart_fig.write_image(img_buffer, format='png')
-        img_buffer.seek(0)
-        from reportlab.platypus import Image
-        story.append(Image(img_buffer, width=450, height=250))
-    story.append(Spacer(1, 12))
-    story.append(Paragraph("Health Report", styles['h2']))
-    table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
-    table = Table(table_data)
-    table.setStyle(TableStyle([('BACKGROUND', (0, 0), (-1, 0), colors.grey), ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-                           ('ALIGN', (0, 0), (-1, -1), 'CENTER'), ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                           ('BOTTOMPADDING', (0, 0), (-1, 0), 12), ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-                           ('GRID', (0, 0), (-1, -1), 1, colors.black)]))
-    story.append(table)
-    doc.build(story)
-    buffer.seek(0)
-    return buffer
+        story.append(Paragraph("📊 Diagnostic Chart", heading_style))
+        story.append(Spacer(1, 10))
+        try:
+            img_buffer = io.BytesIO()
+            chart_fig.write_image(img_buffer, format='png', width=600, height=400, scale=2)
+            img_buffer.seek(0)
+            from reportlab.platypus import Image
+            # Center the image
+            img = Image(img_buffer, width=500, height=333)
+            img.hAlign = 'CENTER'
+            story.append(img)
+            story.append(Spacer(1, 20))
+        except Exception as e:
+            story.append(Paragraph(f"⚠️ Chart generation error: {str(e)}", styles['Normal']))
+            story.append(Spacer(1, 15))
+    
+    # Detailed Health Report with improved table formatting
+    if not health_report_df.empty:
+        story.append(Paragraph("🔧 Detailed Health Report", heading_style))
+        story.append(Spacer(1, 10))
+        
+        # Convert DataFrame to table data
+        table_data = [health_report_df.columns.tolist()] + health_report_df.values.tolist()
+        
+        # Calculate column widths based on content
+        num_cols = len(table_data[0])
+        col_width = 450 / num_cols  # Distribute evenly
+        
+        # Create table with improved styling
+        health_table = Table(table_data, colWidths=[col_width] * num_cols)
+        health_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.lightblue, colors.white]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        story.append(health_table)
+        story.append(Spacer(1, 20))
+    
+    # Anomaly Analysis Details with enhanced formatting
+    if report_data:
+        story.append(Paragraph("📈 Anomaly Analysis Details", heading_style))
+        story.append(Spacer(1, 10))
+        
+        anomaly_data = [['Component', 'Anomaly Count', 'Avg. Threshold', 'Unit', 'Status']]
+        for item in report_data:
+            status = "⚠️ High" if item.get('count', 0) > 5 else "✓ Normal"
+            status_color_cell = colors.red if item.get('count', 0) > 5 else colors.green
+            anomaly_data.append([
+                item.get('name', 'Unknown'),
+                str(item.get('count', 0)),
+                f"{item.get('threshold', 0):.2f}",
+                item.get('unit', ''),
+                status
+            ])
+        
+        anomaly_table = Table(anomaly_data, colWidths=[120, 80, 90, 60, 80])
+        
+        # Create style with conditional coloring for status column
+        table_style = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.lightblue, colors.white]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]
+        
+        # Add conditional coloring for high anomaly counts
+        for i, item in enumerate(report_data, 1):
+            if item.get('count', 0) > 5:
+                table_style.append(('TEXTCOLOR', (4, i), (4, i), colors.red))
+                table_style.append(('FONTNAME', (4, i), (4, i), 'Helvetica-Bold'))
+            else:
+                table_style.append(('TEXTCOLOR', (4, i), (4, i), colors.green))
+        
+        anomaly_table.setStyle(TableStyle(table_style))
+        story.append(anomaly_table)
+        story.append(Spacer(1, 25))
+    
+    # Professional footer with border
+    footer_data = [[f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d at %H:%M:%S')} | AI-Powered Machine Diagnostics Analyzer v2.0"]]
+    footer_table = Table(footer_data, colWidths=[500])
+    footer_table.setStyle(TableStyle([
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.grey),
+        ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+        ('BACKGROUND', (0, 0), (-1, -1), colors.lightgrey),
+        ('GRID', (0, 0), (-1, -1), 1, colors.grey),
+    ]))
+    story.append(footer_table)
+    
+    # Build PDF with improved error handling
+    try:
+        doc.build(story)
+        buffer.seek(0)
+        return buffer
+    except Exception as e:
+        st.error(f"PDF generation failed: {str(e)}")
+        return None
 
 def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False):
     """
