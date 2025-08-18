@@ -2209,6 +2209,185 @@ def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, he
     buffer.seek(0)
     return buffer
 
+def render_pressure_options_sidebar():
+    """
+    Render pressure analysis options similar to professional software
+    """
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🔧 Pressure Analysis Options")
+    
+    # Main pressure enable toggle
+    enable_pressure = st.sidebar.checkbox(
+        "Enable Advanced Pressure Analysis", 
+        value=True, 
+        key='enable_pressure'
+    )
+    
+    pressure_options = {'enable_pressure': enable_pressure}
+    
+    if enable_pressure:
+        # Pressure Traces Section
+        st.sidebar.markdown("**Pressure Traces:**")
+        pressure_options['show_he_pt'] = st.sidebar.checkbox("Show HE PT trace", key='show_he_pt')
+        pressure_options['show_he_theoretical'] = st.sidebar.checkbox("Show HE Theoretical", key='show_he_theoretical')
+        pressure_options['show_ce_pt'] = st.sidebar.checkbox("Show CE PT trace", value=True, key='show_ce_pt')
+        pressure_options['show_ce_theoretical'] = st.sidebar.checkbox("Show CE Theoretical", key='show_ce_theoretical')
+        
+        # Additional Pressures Section  
+        st.sidebar.markdown("**Additional Pressures:**")
+        pressure_options['show_he_nozzle'] = st.sidebar.checkbox("Show HE Nozzle pressure", key='show_he_nozzle')
+        pressure_options['show_ce_nozzle'] = st.sidebar.checkbox("Show CE Nozzle pressure", key='show_ce_nozzle')
+        pressure_options['show_he_terminal'] = st.sidebar.checkbox("Show HE Terminal pressure", key='show_he_terminal')
+        pressure_options['show_ce_terminal'] = st.sidebar.checkbox("Show CE Terminal pressure", key='show_ce_terminal')
+        
+        # Period Selection
+        st.sidebar.markdown("**Pressure Period Selection:**")
+        period_options = [
+            "Median", "Average", "Maximum", "Minimum", 
+            "Outer Envelope", "Inner Envelope", "All periods"
+        ]
+        
+        pressure_options['period_selection'] = st.sidebar.selectbox(
+            "Period Selection:",
+            period_options,
+            index=0,  # Default to Median
+            key='pressure_period'
+        )
+        
+        # Additional options
+        pressure_options['use_crc_data'] = st.sidebar.checkbox("Use CRC data", key='use_crc_data')
+    else:
+        # Set all options to False if pressure analysis is disabled
+        pressure_options.update({
+            'show_he_pt': False,
+            'show_he_theoretical': False, 
+            'show_ce_pt': False,
+            'show_ce_theoretical': False,
+            'show_he_nozzle': False,
+            'show_ce_nozzle': False,
+            'show_he_terminal': False,
+            'show_ce_terminal': False,
+            'period_selection': "Median",
+            'use_crc_data': False
+        })
+    
+    return pressure_options
+
+def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options):
+    """
+    Apply the selected pressure options to the existing plot
+    """
+    if not pressure_options['enable_pressure']:
+        return fig
+    
+    # Get the main pressure curve
+    pressure_curve = cylinder_config.get('pressure_curve')
+    
+    # Color scheme for different traces
+    colors = {
+        'he_pt': 'blue',
+        'ce_pt': 'red', 
+        'he_theoretical': 'lightblue',
+        'ce_theoretical': 'pink',
+        'he_nozzle': 'darkblue',
+        'ce_nozzle': 'darkred',
+        'he_terminal': 'navy',
+        'ce_terminal': 'maroon'
+    }
+    
+    # Show CE (Crank End) pressure trace - this is your main pressure data
+    if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
+        # Check if this trace already exists, if not add it
+        trace_names = [trace.name for trace in fig.data]
+        if 'CE PT trace' not in trace_names:
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=df[pressure_curve],
+                    name='CE PT trace',
+                    line=dict(color=colors['ce_pt'], width=2),
+                    mode='lines'
+                ),
+                secondary_y=False
+            )
+    
+    # Show theoretical CE pressure (simplified calculation)
+    if pressure_options['show_ce_theoretical']:
+        try:
+            # Simple theoretical pressure calculation
+            import numpy as np
+            theta_rad = np.deg2rad(df['Crank Angle'])
+            base_pressure = 120  # psi baseline
+            amplitude = 60       # pressure variation
+            theoretical_ce = base_pressure + amplitude * np.sin(theta_rad + np.pi/4)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=theoretical_ce,
+                    name='CE Theoretical',
+                    line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
+                    mode='lines'
+                ),
+                secondary_y=False
+            )
+        except Exception as e:
+            st.sidebar.warning(f"Could not calculate theoretical pressure: {e}")
+    
+    # HE (Head End) traces - these would be additional data if available
+    if pressure_options['show_he_pt']:
+        # Check if HE pressure data exists in your dataframe
+        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
+        if he_columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=df[he_columns[0]],  # Use first available HE column
+                    name='HE PT trace',
+                    line=dict(color=colors['he_pt'], width=2),
+                    mode='lines'
+                ),
+                secondary_y=False
+            )
+        else:
+            st.sidebar.info("HE pressure data not found in current dataset")
+    
+    if pressure_options['show_he_theoretical']:
+        try:
+            import numpy as np
+            theta_rad = np.deg2rad(df['Crank Angle'])
+            base_pressure = 100
+            amplitude = 50
+            theoretical_he = base_pressure + amplitude * np.sin(theta_rad)
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=theoretical_he,
+                    name='HE Theoretical',
+                    line=dict(color=colors['he_theoretical'], width=2, dash='dash'),
+                    mode='lines'
+                ),
+                secondary_y=False
+            )
+        except Exception as e:
+            st.sidebar.warning(f"Could not calculate HE theoretical: {e}")
+    
+    # Additional pressure traces (nozzle, terminal) - placeholder for future data
+    if pressure_options['show_ce_nozzle']:
+        st.sidebar.info("CE Nozzle pressure data not available in current dataset")
+    
+    if pressure_options['show_he_nozzle']:
+        st.sidebar.info("HE Nozzle pressure data not available in current dataset")
+        
+    if pressure_options['show_ce_terminal']:
+        st.sidebar.info("CE Terminal pressure data not available in current dataset")
+        
+    if pressure_options['show_he_terminal']:
+        st.sidebar.info("HE Terminal pressure data not available in current dataset")
+    
+    return fig
+
 # --- Main Application ---
 
 db_client = init_db()
@@ -2252,6 +2431,9 @@ with st.sidebar:
             key='pv_overlay',
             help="Show P-V diagram as overlay on crank-angle view"
         )
+
+    # Add pressure options here
+    pressure_options = render_pressure_options_sidebar()
     
     clearance_pct = st.number_input(
         "Clearance (%)",
@@ -2315,10 +2497,18 @@ if validated_files:
             # Rest of your existing code stays the same...
             with st.sidebar: selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
+                                
             if selected_cylinder_config:
                 # Generate plot and initial data
-                _, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
-                    
+                fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
+    
+                # Apply pressure options to the plot
+                if view_mode == "Crank-angle":  # Only apply to crank-angle view
+                    fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options)
+    
+                # Display the enhanced plot
+                st.plotly_chart(fig, use_container_width=True)
+                
                 # Create or update analysis records in DB
                 analysis_ids = {}
                 for item in temp_report_data:
