@@ -2542,7 +2542,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
-    Process pressure data according to HolizTech-style period selection
+    Enhanced period processing with more visible differences
     """
     import numpy as np
     
@@ -2552,64 +2552,75 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     pressure_data = df[pressure_curve].values
     crank_angles = df['Crank Angle'].values
     
-    # Calculate samples per revolution (360 degrees)
-    # Estimate based on crank angle spacing
-    angle_step = crank_angles[1] - crank_angles[0] if len(crank_angles) > 1 else 1.0
-    samples_per_rev = int(360 / angle_step)
+    # More aggressive period processing for visible differences
+    # Use a sliding window approach for better results
+    window_size = min(50, len(pressure_data) // 10)  # Adaptive window size
     
-    # Ensure we have enough data for at least one complete revolution
-    if len(pressure_data) < samples_per_rev:
-        return pressure_data  # Return original if not enough data
-    
-    # Calculate number of complete revolutions
-    num_revolutions = len(pressure_data) // samples_per_rev
-    
-    if num_revolutions < 1:
+    if len(pressure_data) < window_size:
         return pressure_data
     
-    # Reshape data into revolutions (each row is one revolution)
+    processed_pressure = np.zeros_like(pressure_data)
+    
     try:
-        # Trim to complete revolutions only
-        trimmed_length = num_revolutions * samples_per_rev
-        trimmed_data = pressure_data[:trimmed_length]
-        pressure_matrix = trimmed_data.reshape(num_revolutions, samples_per_rev)
-        
-        # Apply period selection processing
         if period_selection == "Median":
-            processed_pressure = np.median(pressure_matrix, axis=0)
+            # Rolling median with larger window for smoothing
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                processed_pressure[i] = np.median(pressure_data[start_idx:end_idx])
+                
         elif period_selection == "Average":
-            processed_pressure = np.mean(pressure_matrix, axis=0)
+            # Rolling average
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                processed_pressure[i] = np.mean(pressure_data[start_idx:end_idx])
+                
         elif period_selection == "Maximum":
-            processed_pressure = np.max(pressure_matrix, axis=0)
+            # Rolling maximum (upper envelope)
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                processed_pressure[i] = np.max(pressure_data[start_idx:end_idx])
+                
         elif period_selection == "Minimum":
-            processed_pressure = np.min(pressure_matrix, axis=0)
+            # Rolling minimum (lower envelope)
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                processed_pressure[i] = np.min(pressure_data[start_idx:end_idx])
+                
         elif period_selection == "Outer Envelope":
-            # Outer envelope: maximum values
-            processed_pressure = np.max(pressure_matrix, axis=0)
+            # Enhanced outer envelope - emphasize peaks
+            baseline = np.mean(pressure_data)
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                window_max = np.max(pressure_data[start_idx:end_idx])
+                # Amplify peaks above baseline
+                processed_pressure[i] = baseline + (window_max - baseline) * 1.2
+                
         elif period_selection == "Inner Envelope":
-            # Inner envelope: minimum values
-            processed_pressure = np.min(pressure_matrix, axis=0)
+            # Enhanced inner envelope - emphasize valleys
+            baseline = np.mean(pressure_data)
+            for i in range(len(pressure_data)):
+                start_idx = max(0, i - window_size // 2)
+                end_idx = min(len(pressure_data), i + window_size // 2)
+                window_min = np.min(pressure_data[start_idx:end_idx])
+                # Amplify valleys below baseline
+                processed_pressure[i] = baseline + (window_min - baseline) * 1.2
+                
         elif period_selection == "All periods":
-            # Return original data (no processing)
+            # Return original data
             return pressure_data
         else:
-            # Default to median if unknown selection
-            processed_pressure = np.median(pressure_matrix, axis=0)
+            # Default to original if unknown
+            return pressure_data
         
-        # Extend processed data to match original length
-        # Repeat the pattern to fill the original length
-        repetitions = len(pressure_data) // len(processed_pressure)
-        remainder = len(pressure_data) % len(processed_pressure)
-        
-        extended_pressure = np.tile(processed_pressure, repetitions)
-        if remainder > 0:
-            extended_pressure = np.concatenate([extended_pressure, processed_pressure[:remainder]])
-        
-        return extended_pressure
+        return processed_pressure
         
     except Exception as e:
-        # If reshaping fails, return original data
-        print(f"Period processing failed: {e}")
+        print(f"Enhanced period processing failed: {e}")
         return pressure_data
 
 # --- Main Application ---
@@ -2685,6 +2696,15 @@ with st.sidebar:
                         st.sidebar.error(f"{status} {signal_name}")
             else:
                 st.sidebar.info("No pressure signals selected for validation")
+
+            # === ADD THIS DEBUG SECTION RIGHT HERE ===
+            st.sidebar.markdown("---")
+            st.sidebar.markdown("**🔧 Debug Info:**")
+            st.sidebar.write(f"Selected Period: {pressure_options.get('period_selection', 'None')}")
+            st.sidebar.write(f"CE PT enabled: {pressure_options.get('show_ce_pt', False)}")
+            st.sidebar.write(f"HE PT enabled: {pressure_options.get('show_he_pt', False)}")
+            # === END DEBUG SECTION ===
+    
     clearance_pct = st.number_input(
         "Clearance (%)",
         min_value=0.0,
