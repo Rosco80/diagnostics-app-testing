@@ -1175,8 +1175,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 
                                 # Debug info for P-V diagram
                                 st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSI), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSI)")
-                            else:
-                                st.warning("⚠️ Volume and pressure data length mismatch or empty data")
+                    else:
+                        st.warning("⚠️ Volume and pressure data length mismatch or empty data")
                     
                         except Exception as e:
                             st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
@@ -1204,21 +1204,21 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             })
                 
                         return fig, report_data
-                    else:
-                        st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
                 else:
-                    st.warning("Failed to compute volume data")
+                    st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
+        else:
+            st.warning("Failed to compute volume data")
             
             except Exception as e:
                 st.warning(f"P-V diagram computation failed: {e}")
-        else:
-            missing = []
-            if bore is None:
-                missing.append("bore dimension")
-            if stroke is None:
-                missing.append("stroke dimension")
-            if pressure_curve is None or pressure_curve not in df.columns:
-                missing.append("pressure curve")
+    else:
+        missing = []
+        if bore is None:
+            missing.append("bore dimension")
+        if stroke is None:
+            missing.append("stroke dimension")
+        if pressure_curve is None or pressure_curve not in df.columns:
+            missing.append("pressure curve")
             st.warning(f"P-V diagram not available - missing: {', '.join(missing)}")
             
         # Return empty figure and report data if P-V plot fails
