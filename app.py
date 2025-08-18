@@ -1178,8 +1178,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     else:
                         st.warning("⚠️ Volume and pressure data length mismatch or empty data")
                     
-                        except Exception as e:
-                            st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
+                    except Exception as e:
+                        st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
                 
                         fig.update_layout(
                             height=700,
@@ -1209,8 +1209,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         else:
             st.warning("Failed to compute volume data")
             
-            except Exception as e:
-                st.warning(f"P-V diagram computation failed: {e}")
+        except Exception as e:
+            st.warning(f"P-V diagram computation failed: {e}")
     else:
         missing = []
         if bore is None:
