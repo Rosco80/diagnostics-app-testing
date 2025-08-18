@@ -1132,7 +1132,24 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 if V is not None and len(V) > 0:
                     pressure_data = df[pressure_curve]
             
-                    if len(V) > 0 and len(pressure_data) > 0 and len(V) == len(pressure_data):
+                    if len(V) == len(pressure_data):
+                        fig = go.Figure()
+                
+                        # Add the P-V cycle
+                        fig.add_trace(go.Scatter(
+                            x=V, y=pressure_data,
+                            mode="lines+markers",
+                            line=dict(width=2),
+                            marker=dict(size=2),
+                            name="P-V Cycle",
+                            hovertemplate="<b>Volume:</b> %{x:.1f} in³<br>" +
+                                        "<b>Pressure:</b> %{y:.1f} PSI<br>" +
+                                        "<extra></extra>"
+                        ))
+                        
+                        try:
+                            # STANDALONE P-V MODE: Find TDC/BDC points for P-V diagram
+                            if len(V) > 0 and len(pressure_data) > 0 and len(V) == len(pressure_data):
                                 # Use numpy arrays for safer operations
                                 volume_values = V.values
                                 pressure_values = pressure_data.values
@@ -1175,11 +1192,11 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 
                                 # Debug info for P-V diagram
                                 st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSI), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSI)")
-                    else:
-                        st.warning("⚠️ Volume and pressure data length mismatch or empty data")
+                            else:
+                                st.warning("⚠️ Volume and pressure data length mismatch or empty data")
                     
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
                 
                         fig.update_layout(
                             height=700,
@@ -1204,21 +1221,21 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             })
                 
                         return fig, report_data
+                    else:
+                        st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
                 else:
-                    st.warning(f"Data length mismatch: Volume={len(V)}, Pressure={len(pressure_data)}")
-        else:
-            st.warning("Failed to compute volume data")
+                    st.warning("Failed to compute volume data")
             
-        except Exception as e:
-            st.warning(f"P-V diagram computation failed: {e}")
-    else:
-        missing = []
-        if bore is None:
-            missing.append("bore dimension")
-        if stroke is None:
-            missing.append("stroke dimension")
-        if pressure_curve is None or pressure_curve not in df.columns:
-            missing.append("pressure curve")
+            except Exception as e:
+                st.warning(f"P-V diagram computation failed: {e}")
+        else:
+            missing = []
+            if bore is None:
+                missing.append("bore dimension")
+            if stroke is None:
+                missing.append("stroke dimension")
+            if pressure_curve is None or pressure_curve not in df.columns:
+                missing.append("pressure curve")
             st.warning(f"P-V diagram not available - missing: {', '.join(missing)}")
             
         # Return empty figure and report data if P-V plot fails
