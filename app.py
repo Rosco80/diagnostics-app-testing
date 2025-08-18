@@ -2335,7 +2335,7 @@ if validated_files:
                 # Export and Cylinder Details
                                     
                 if st.button("🔄 Generate Report for this Cylinder", type="primary", key='gen_report'):
-                    pdf_buffer = generate_pdf_report_enhanced(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
+                    pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
                     if pdf_buffer:
                         st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
                         
