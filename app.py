@@ -936,68 +936,109 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             )
             stroke_values.append(float(stroke) if stroke not in [None, '', 'N/A'] else None)
 
-        # Build configuration for each cylinder
+        # Build configuration for each cylinder - FIXED LOGIC
         cylinders_config = []
+        
+        # Debug: Print all curve names to see what we're working with
+        print("DEBUG: Available curve names:")
+        for name in sorted(all_curve_names):
+            print(f"  - {name}")
+        
         for i in range(1, num_cylinders + 1):
-            # Identify the pressure and vibration curves using original pattern matching
-            pressure_curve = next(
-                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c),
-                None,
-            ) or next(
-                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c),
-                None,
+            print(f"\nDEBUG: Processing Cylinder {i}")
+            
+            # FIXED: More robust pressure curve detection
+            pressure_curve = None
+            
+            # Try Head End first (.{i}H.)
+            he_pressure = next(
+                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                None
             )
+            
+            # Try Crank End (.{i}C.)
+            ce_pressure = next(
+                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                None
+            )
+            
+            # Prefer Head End, fall back to Crank End
+            pressure_curve = he_pressure or ce_pressure
+            
+            print(f"DEBUG: Cylinder {i} - HE pressure: {he_pressure}")
+            print(f"DEBUG: Cylinder {i} - CE pressure: {ce_pressure}")
+            print(f"DEBUG: Cylinder {i} - Selected pressure: {pressure_curve}")
 
-            valve_curves = [
-                {
-                    "name": "HE Discharge",
-                    "curve": next(
-                        (c for c in all_curve_names if f".{i}HD" in c and "VIBRATION" in c),
-                        None,
-                    ),
-                },
-                {
-                    "name": "HE Suction",
-                    "curve": next(
-                        (c for c in all_curve_names if f".{i}HS" in c and "VIBRATION" in c),
-                        None,
-                    ),
-                },
-                {
-                    "name": "CE Discharge",
-                    "curve": next(
-                        (c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c),
-                        None,
-                    ),
-                },
-                {
-                    "name": "CE Suction",
-                    "curve": next(
-                        (c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c),
-                        None,
-                    ),
-                },
-            ]
+            # FIXED: More robust valve curve detection with better patterns
+            valve_curves = []
+            
+            # Head End Discharge (.{i}HD or .{i}CD1)
+            he_discharge = next(
+                (c for c in all_curve_names if (f".{i}HD" in c or f".{i}CD1" in c) and "VIBRATION" in c),
+                None
+            )
+            if he_discharge:
+                valve_curves.append({"name": "HE Discharge", "curve": he_discharge})
+            
+            # Head End Suction (.{i}HS or .{i}CS1)  
+            he_suction = next(
+                (c for c in all_curve_names if (f".{i}HS" in c or f".{i}CS1" in c) and "VIBRATION" in c),
+                None
+            )
+            if he_suction:
+                valve_curves.append({"name": "HE Suction", "curve": he_suction})
+            
+            # Crank End Discharge (.{i}CD)
+            ce_discharge = next(
+                (c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c and f".{i}CD1" not in c),
+                None
+            )
+            if ce_discharge:
+                valve_curves.append({"name": "CE Discharge", "curve": ce_discharge})
+            
+            # Crank End Suction (.{i}CS)
+            ce_suction = next(
+                (c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c and f".{i}CS1" not in c),
+                None
+            )
+            if ce_suction:
+                valve_curves.append({"name": "CE Suction", "curve": ce_suction})
 
-            if pressure_curve and any(vc['curve'] for vc in valve_curves):
-                bore = bore_values[i - 1]
-                rod_dia = rod_diameter_values[i - 1]
-                stroke = stroke_values[i - 1]
+            print(f"DEBUG: Cylinder {i} - Found valve curves: {[vc['name'] for vc in valve_curves]}")
+
+            # FIXED: More lenient condition - include cylinder if it has EITHER pressure OR valve data
+            # This ensures we don't skip cylinders that might have partial data
+            has_pressure = pressure_curve is not None
+            has_valves = len(valve_curves) > 0
+            
+            if has_pressure or has_valves:
+                bore = bore_values[i - 1] if i <= len(bore_values) else None
+                rod_dia = rod_diameter_values[i - 1] if i <= len(rod_diameter_values) else None
+                stroke = stroke_values[i - 1] if i <= len(stroke_values) else None
                 volume = None
                 if bore is not None and stroke is not None:
                     volume = math.pi * (bore / 2) ** 2 * stroke
 
-                cylinders_config.append(
-                    {
-                        "cylinder_name": f"Cylinder {i}",
-                        "pressure_curve": pressure_curve,
-                        "valve_vibration_curves": [vc for vc in valve_curves if vc['curve']],
-                        "bore": bore,
-                        "rod_diameter": rod_dia,
-                        "stroke": stroke,
-                        "volume": volume,
-                    }
-                )
+                cylinder_config = {
+                    "cylinder_name": f"Cylinder {i}",
+                    "pressure_curve": pressure_curve,
+                    "valve_vibration_curves": valve_curves,
+                    "bore": bore,
+                    "rod_diameter": rod_dia,
+                    "stroke": stroke,
+                    "volume": volume,
+                }
+                
+                cylinders_config.append(cylinder_config)
+                print(f"DEBUG: Added Cylinder {i} to config")
+            else:
+                print(f"DEBUG: Skipped Cylinder {i} - no pressure or valve data found")
+
+        print(f"\nDEBUG: Final cylinders_config length: {len(cylinders_config)}")
+        print(f"DEBUG: Cylinder names: {[c['cylinder_name'] for c in cylinders_config]}")
+
+        # FIXED: Ensure cylinders are sorted by number to guarantee Cylinder 1 comes first
+        cylinders_config.sort(key=lambda x: int(x['cylinder_name'].split()[-1]))
 
         return {
             "machine_id": machine_id,
@@ -1012,6 +1053,39 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
     except Exception as e:
         st.error(f"Error during auto-discovery: {e}")
         return None
+
+def render_cylinder_selection_sidebar(cylinders_config):
+    """
+    Fixed cylinder selection that always defaults to Cylinder 1
+    """
+    cylinders = cylinders_config.get("cylinders", [])
+    cylinder_names = [c.get("cylinder_name") for c in cylinders]
+    
+    if not cylinder_names:
+        st.sidebar.error("No cylinders detected")
+        return None, None
+    
+    # FIXED: Force Cylinder 1 to be default if it exists
+    default_index = 0
+    if "Cylinder 1" in cylinder_names:
+        default_index = cylinder_names.index("Cylinder 1")
+        print(f"DEBUG: Setting default to Cylinder 1 (index {default_index})")
+    else:
+        print(f"DEBUG: Cylinder 1 not found, using first available: {cylinder_names[0]}")
+    
+    selected_cylinder_name = st.sidebar.selectbox(
+        "Select Cylinder for Detailed View", 
+        cylinder_names,
+        index=default_index,  # This ensures proper default selection
+        help="Choose which cylinder to analyze in detail"
+    )
+    
+    selected_cylinder_config = next(
+        (c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), 
+        None
+    )
+    
+    return selected_cylinder_name, selected_cylinder_config
 
 def generate_health_report_table(_source_xml_content, _levels_xml_content, cylinder_index):
     try:
@@ -2233,9 +2307,7 @@ if validated_files:
             cylinder_names = [c.get("cylinder_name") for c in cylinders]
             
             # Rest of your existing code stays the same...
-            with st.sidebar:
-                selected_cylinder_name = st.selectbox("Select Cylinder for Detailed View", cylinder_names)
-                selected_cylinder_config = next((c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), None)
+            with st.sidebar: selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
             if selected_cylinder_config:
                 # Generate plot and initial data
