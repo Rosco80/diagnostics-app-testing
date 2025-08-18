@@ -2540,8 +2540,7 @@ if validated_files:
                 # Now we can safely use health_score in alerts and metrics
                 check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                 st.metric("Health Score", f"{health_score:.1f}")
-                st.plotly_chart(fig, use_container_width=True)
-    
+                    
                 # Display health report
                 st.subheader("📋 Compressor Health Report")
                 cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
