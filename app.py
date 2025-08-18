@@ -2275,7 +2275,7 @@ def render_pressure_options_sidebar():
 
 def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, files_content):
     """
-    Apply the selected pressure options to the existing plot with realistic calculations
+    Debug version - apply pressure options with error checking
     """
     if not pressure_options['enable_pressure']:
         return fig
@@ -2295,6 +2295,10 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         'ce_terminal': 'maroon'
     }
     
+    # DEBUG: Add debug info
+    st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
+    st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
+    
     # Show CE (Crank End) pressure trace - this is your main pressure data
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
         # Check if this trace already exists, if not add it
@@ -2311,130 +2315,79 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
                 secondary_y=False
             )
     
-    # Show REALISTIC theoretical CE pressure using actual thermodynamic data
+    # Show SIMPLE theoretical CE pressure (for testing)
     if pressure_options['show_ce_theoretical']:
         try:
+            st.sidebar.write("Debug: Attempting CE Theoretical calculation...")
             import numpy as np
-            import xml.etree.ElementTree as ET
             
-            # Extract real parameters from your XML data
-            source_root = ET.fromstring(files_content['source'])
-            
-            # Default values from your actual data
-            suction_pressure = 690.0
-            discharge_pressure = 1550.0
-            compression_ratio = 2.2
-            compression_n = 1.33
-            
-            # Get cylinder geometry
-            bore = cylinder_config.get('bore', 12.0)
-            stroke = cylinder_config.get('stroke', 8.0)
-            
-            # Calculate realistic theoretical pressure
+            # SIMPLE VERSION FOR TESTING
             theta_rad = np.deg2rad(df['Crank Angle'])
             
-            # Calculate instantaneous volume
-            clearance_ratio = 0.05
-            swept_volume = 3.14159 * (bore/2)**2 * stroke
-            clearance_volume = swept_volume * clearance_ratio
+            # Use realistic pressure values from your data
+            suction_pressure = 690.0
+            discharge_pressure = 1550.0
             
-            piston_position = (stroke/2) * (1 - np.cos(theta_rad))
-            instantaneous_volume = clearance_volume + 3.14159 * (bore/2)**2 * piston_position
+            # Simple sinusoidal approximation in realistic range
+            pressure_amplitude = (discharge_pressure - suction_pressure) / 2
+            pressure_baseline = suction_pressure + pressure_amplitude
             
-            # Calculate theoretical pressure using polytropic process
-            theoretical_pressure = np.zeros_like(theta_rad)
+            theoretical_ce = pressure_baseline + pressure_amplitude * np.sin(theta_rad)
             
-            for i, theta in enumerate(theta_rad):
-                crank_angle_deg = np.rad2deg(theta)
-                
-                if 0 <= crank_angle_deg <= 180:  # Compression stroke
-                    # Polytropic compression: P = P1 * (V1/V)^n
-                    volume_ratio = (clearance_volume + swept_volume) / instantaneous_volume[i]
-                    theoretical_pressure[i] = suction_pressure * (volume_ratio ** compression_n)
-                    
-                    # Cap at discharge pressure
-                    if theoretical_pressure[i] > discharge_pressure:
-                        theoretical_pressure[i] = discharge_pressure
-                        
-                else:  # Expansion stroke
-                    # Polytropic expansion
-                    volume_ratio = clearance_volume / instantaneous_volume[i]
-                    theoretical_pressure[i] = discharge_pressure * (volume_ratio ** compression_n)
-                    
-                    # Floor at suction pressure
-                    if theoretical_pressure[i] < suction_pressure:
-                        theoretical_pressure[i] = suction_pressure
+            st.sidebar.write(f"Debug: CE Theoretical calculated, min={theoretical_ce.min():.1f}, max={theoretical_ce.max():.1f}")
             
             fig.add_trace(
                 go.Scatter(
                     x=df['Crank Angle'],
-                    y=theoretical_pressure,
-                    name='CE Theoretical',
+                    y=theoretical_ce,
+                    name='CE Theoretical (Test)',
                     line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
                     mode='lines'
                 ),
                 secondary_y=False
             )
             
+            st.sidebar.success("Debug: CE Theoretical trace added successfully!")
+            
         except Exception as e:
-            st.sidebar.warning(f"Could not calculate theoretical pressure: {e}")
+            st.sidebar.error(f"Debug: CE Theoretical failed: {str(e)}")
     
-    # Show REALISTIC theoretical HE pressure
+    # Show SIMPLE theoretical HE pressure (for testing)
     if pressure_options['show_he_theoretical']:
         try:
+            st.sidebar.write("Debug: Attempting HE Theoretical calculation...")
             import numpy as np
             
-            # HE parameters (slightly different from CE)
-            he_suction = 650.0  # Slightly lower than CE
-            he_discharge = 1400.0  # Slightly lower than CE
-            compression_n = 1.30
-            
-            # Get cylinder geometry
-            bore = cylinder_config.get('bore', 12.0)
-            stroke = cylinder_config.get('stroke', 8.0)
-            
-            # Calculate realistic HE theoretical pressure
+            # SIMPLE VERSION FOR TESTING  
             theta_rad = np.deg2rad(df['Crank Angle'])
             
-            clearance_ratio = 0.05
-            swept_volume = 3.14159 * (bore/2)**2 * stroke
-            clearance_volume = swept_volume * clearance_ratio
+            # HE parameters (slightly different from CE)
+            he_suction = 650.0
+            he_discharge = 1400.0
             
-            piston_position = (stroke/2) * (1 - np.cos(theta_rad))
-            instantaneous_volume = clearance_volume + 3.14159 * (bore/2)**2 * piston_position
+            # Simple sinusoidal approximation in realistic range
+            pressure_amplitude = (he_discharge - he_suction) / 2
+            pressure_baseline = he_suction + pressure_amplitude
             
-            theoretical_pressure = np.zeros_like(theta_rad)
+            theoretical_he = pressure_baseline + pressure_amplitude * np.sin(theta_rad + np.pi/4)
             
-            for i, theta in enumerate(theta_rad):
-                crank_angle_deg = np.rad2deg(theta)
-                
-                if 0 <= crank_angle_deg <= 180:  # Compression stroke
-                    volume_ratio = (clearance_volume + swept_volume) / instantaneous_volume[i]
-                    theoretical_pressure[i] = he_suction * (volume_ratio ** compression_n)
-                    
-                    if theoretical_pressure[i] > he_discharge:
-                        theoretical_pressure[i] = he_discharge
-                        
-                else:  # Expansion stroke
-                    volume_ratio = clearance_volume / instantaneous_volume[i]
-                    theoretical_pressure[i] = he_discharge * (volume_ratio ** compression_n)
-                    
-                    if theoretical_pressure[i] < he_suction:
-                        theoretical_pressure[i] = he_suction
+            st.sidebar.write(f"Debug: HE Theoretical calculated, min={theoretical_he.min():.1f}, max={theoretical_he.max():.1f}")
             
             fig.add_trace(
                 go.Scatter(
                     x=df['Crank Angle'],
-                    y=theoretical_pressure,
-                    name='HE Theoretical',
+                    y=theoretical_he,
+                    name='HE Theoretical (Test)',
                     line=dict(color=colors['he_theoretical'], width=2, dash='dash'),
                     mode='lines'
                 ),
                 secondary_y=False
             )
             
+            st.sidebar.success("Debug: HE Theoretical trace added successfully!")
+            
         except Exception as e:
-            st.sidebar.warning(f"Could not calculate HE theoretical: {e}")
+            st.sidebar.error(f"Debug: HE Theoretical failed: {str(e)}")
     
     # HE (Head End) traces - check for actual HE data
     if pressure_options['show_he_pt']:
