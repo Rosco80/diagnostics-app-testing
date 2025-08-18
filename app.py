@@ -2360,23 +2360,44 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     # DEBUG: Add debug info
     st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
     st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
-    
+        
     # Show CE (Crank End) pressure trace - this is your main pressure data
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
         # Check if this trace already exists, if not add it
         trace_names = [trace.name for trace in fig.data]
         if 'CE PT trace' not in trace_names:
-            fig.add_trace(
-                go.Scatter(
-                    x=df['Crank Angle'],
-                    y=df[pressure_curve],
-                    name='CE PT trace',
-                    line=dict(color=colors['ce_pt'], width=2),
-                    mode='lines'
-                ),
-                secondary_y=False
-            )
-    
+        
+            # ENHANCED: Apply period selection processing
+            processed_pressure = process_pressure_by_period (df, pressure_curve, pressure_options.get('period_selection', 'Median'))
+        
+            if processed_pressure is not None:
+                trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
+            
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=processed_pressure,
+                        name=trace_name,
+                        line=dict(color=colors['ce_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+            
+                # Add debug info
+                st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
+            else:
+                # Fallback to original data
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=df[pressure_curve],
+                        name='CE PT trace (Raw)',
+                        line=dict(color=colors['ce_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
     # Show SIMPLE theoretical CE pressure (for testing)
     if pressure_options['show_ce_theoretical']:
         try:
@@ -2467,6 +2488,42 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
             )
         else:
             st.sidebar.info("HE pressure data not found in current dataset")
+
+    # HE (Head End) traces - check for actual HE data
+    if pressure_options['show_he_pt']:
+        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
+        if he_columns:
+        
+            # ENHANCED: Apply period selection processing to HE data too
+            processed_he_pressure = process_pressure_by_period(df, he_columns[0], pressure_options.get('period_selection', 'Median'))
+        
+            if processed_he_pressure is not None:
+                trace_name = f"HE PT trace ({pressure_options.get('period_selection', 'Median')})"
+            
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=processed_he_pressure,
+                        name=trace_name,
+                        line=dict(color=colors['he_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+            else:
+                # Fallback to original
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=df[he_columns[0]],
+                        name='HE PT trace (Raw)',
+                        line=dict(color=colors['he_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+        else:
+            st.sidebar.info("HE pressure data not found in current dataset")
     
     # Additional pressure traces (keep existing)
     if pressure_options['show_ce_nozzle']:
@@ -2482,6 +2539,79 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         st.sidebar.info("HE Terminal pressure data not available in current dataset")
     
     return fig
+
+def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
+    """
+    Process pressure data according to HolizTech-style period selection
+    """
+    import numpy as np
+    
+    if pressure_curve not in df.columns:
+        return None
+    
+    pressure_data = df[pressure_curve].values
+    crank_angles = df['Crank Angle'].values
+    
+    # Calculate samples per revolution (360 degrees)
+    # Estimate based on crank angle spacing
+    angle_step = crank_angles[1] - crank_angles[0] if len(crank_angles) > 1 else 1.0
+    samples_per_rev = int(360 / angle_step)
+    
+    # Ensure we have enough data for at least one complete revolution
+    if len(pressure_data) < samples_per_rev:
+        return pressure_data  # Return original if not enough data
+    
+    # Calculate number of complete revolutions
+    num_revolutions = len(pressure_data) // samples_per_rev
+    
+    if num_revolutions < 1:
+        return pressure_data
+    
+    # Reshape data into revolutions (each row is one revolution)
+    try:
+        # Trim to complete revolutions only
+        trimmed_length = num_revolutions * samples_per_rev
+        trimmed_data = pressure_data[:trimmed_length]
+        pressure_matrix = trimmed_data.reshape(num_revolutions, samples_per_rev)
+        
+        # Apply period selection processing
+        if period_selection == "Median":
+            processed_pressure = np.median(pressure_matrix, axis=0)
+        elif period_selection == "Average":
+            processed_pressure = np.mean(pressure_matrix, axis=0)
+        elif period_selection == "Maximum":
+            processed_pressure = np.max(pressure_matrix, axis=0)
+        elif period_selection == "Minimum":
+            processed_pressure = np.min(pressure_matrix, axis=0)
+        elif period_selection == "Outer Envelope":
+            # Outer envelope: maximum values
+            processed_pressure = np.max(pressure_matrix, axis=0)
+        elif period_selection == "Inner Envelope":
+            # Inner envelope: minimum values
+            processed_pressure = np.min(pressure_matrix, axis=0)
+        elif period_selection == "All periods":
+            # Return original data (no processing)
+            return pressure_data
+        else:
+            # Default to median if unknown selection
+            processed_pressure = np.median(pressure_matrix, axis=0)
+        
+        # Extend processed data to match original length
+        # Repeat the pattern to fill the original length
+        repetitions = len(pressure_data) // len(processed_pressure)
+        remainder = len(pressure_data) % len(processed_pressure)
+        
+        extended_pressure = np.tile(processed_pressure, repetitions)
+        if remainder > 0:
+            extended_pressure = np.concatenate([extended_pressure, processed_pressure[:remainder]])
+        
+        return extended_pressure
+        
+    except Exception as e:
+        # If reshaping fails, return original data
+        print(f"Period processing failed: {e}")
+        return pressure_data
+
 # --- Main Application ---
 
 db_client = init_db()
