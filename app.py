@@ -969,36 +969,36 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             print(f"DEBUG: Cylinder {i} - CE pressure: {ce_pressure}")
             print(f"DEBUG: Cylinder {i} - Selected pressure: {pressure_curve}")
 
-            # FIXED: More robust valve curve detection with better patterns
+            # FIXED: Correct valve curve detection based on actual XML patterns
             valve_curves = []
             
-            # Head End Discharge (.{i}HD or .{i}CD1)
+            # Head End Discharge (.{i}HD1)
             he_discharge = next(
-                (c for c in all_curve_names if (f".{i}HD" in c or f".{i}CD1" in c) and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}HD1" in c and "VIBRATION" in c),
                 None
             )
             if he_discharge:
                 valve_curves.append({"name": "HE Discharge", "curve": he_discharge})
             
-            # Head End Suction (.{i}HS or .{i}CS1)  
+            # Head End Suction (.{i}HS1)  
             he_suction = next(
-                (c for c in all_curve_names if (f".{i}HS" in c or f".{i}CS1" in c) and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}HS1" in c and "VIBRATION" in c),
                 None
             )
             if he_suction:
                 valve_curves.append({"name": "HE Suction", "curve": he_suction})
             
-            # Crank End Discharge (.{i}CD)
+            # Crank End Discharge (.{i}CD1)
             ce_discharge = next(
-                (c for c in all_curve_names if f".{i}CD" in c and "VIBRATION" in c and f".{i}CD1" not in c),
+                (c for c in all_curve_names if f".{i}CD1" in c and "VIBRATION" in c),
                 None
             )
             if ce_discharge:
                 valve_curves.append({"name": "CE Discharge", "curve": ce_discharge})
             
-            # Crank End Suction (.{i}CS)
+            # Crank End Suction (.{i}CS1)
             ce_suction = next(
-                (c for c in all_curve_names if f".{i}CS" in c and "VIBRATION" in c and f".{i}CS1" not in c),
+                (c for c in all_curve_names if f".{i}CS1" in c and "VIBRATION" in c),
                 None
             )
             if ce_suction:
