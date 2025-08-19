@@ -2544,7 +2544,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
-    Enhanced period processing with VERY visible differences
+    Enhanced period processing with more visible differences - SAFE VERSION
     """
     import numpy as np
     
@@ -2552,6 +2552,10 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
         return None
     
     pressure_data = df[pressure_curve].values.copy()
+    
+    # SAFETY: Always return original data for "All periods" first
+    if period_selection == "All periods":
+        return pressure_data
     
     try:
         if period_selection == "Median":
@@ -2593,20 +2597,25 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
             baseline = np.median(pressure_data)
             processed_pressure = baseline + (pressure_data - baseline) * 0.3
             
-        elif period_selection == "All periods":
-            # Return original data unchanged
-            return pressure_data
-            
         else:
-            # Unknown selection - return original
+            # Unknown selection - return original (SAFE FALLBACK)
             return pressure_data
         
+        # SAFETY CHECK: Make sure processed data is valid
+        if processed_pressure is None or len(processed_pressure) == 0:
+            print(f"Period processing returned empty data for {period_selection}")
+            return pressure_data
+            
+        # SAFETY CHECK: Make sure no all-zeros
+        if np.all(processed_pressure == 0):
+            print(f"Period processing returned all zeros for {period_selection}")
+            return pressure_data
+            
         return processed_pressure
         
     except Exception as e:
-        print(f"Period processing failed: {e}")
-        return pressure_data
-
+        print(f"Enhanced period processing failed for {period_selection}: {e}")
+        return pressure_data  # ALWAYS return original data on error
 # --- Main Application ---
 
 db_client = init_db()
