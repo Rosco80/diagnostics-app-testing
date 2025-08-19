@@ -2361,14 +2361,12 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
     st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
         
-    # Show CE (Crank End) pressure trace - this is your main pressure data  
+    # Show CE (Crank End) pressure trace - this is your main pressure data
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        # Check if ANY pressure trace already exists
+        # Check if this trace already exists, if not add it
         trace_names = [trace.name for trace in fig.data]
-        existing_pressure_traces = [name for name in trace_names if 'Pressure' in name or 'CE PT' in name]
-    
-        if not existing_pressure_traces:  # Only add if no pressure trace exists   
-            
+        if 'CE PT trace' not in trace_names:
+        
             # ENHANCED: Apply period selection processing
             processed_pressure = process_pressure_by_period (df, pressure_curve, pressure_options.get('period_selection', 'Median'))
         
@@ -2544,78 +2542,76 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
-    Enhanced period processing with more visible differences - SAFE VERSION
+    Process pressure data according to HolizTech-style period selection
     """
     import numpy as np
     
     if pressure_curve not in df.columns:
         return None
     
-    pressure_data = df[pressure_curve].values.copy()
+    pressure_data = df[pressure_curve].values
+    crank_angles = df['Crank Angle'].values
     
-    # SAFETY: Always return original data for "All periods" first
-    if period_selection == "All periods":
+    # Calculate samples per revolution (360 degrees)
+    # Estimate based on crank angle spacing
+    angle_step = crank_angles[1] - crank_angles[0] if len(crank_angles) > 1 else 1.0
+    samples_per_rev = int(360 / angle_step)
+    
+    # Ensure we have enough data for at least one complete revolution
+    if len(pressure_data) < samples_per_rev:
+        return pressure_data  # Return original if not enough data
+    
+    # Calculate number of complete revolutions
+    num_revolutions = len(pressure_data) // samples_per_rev
+    
+    if num_revolutions < 1:
         return pressure_data
     
+    # Reshape data into revolutions (each row is one revolution)
     try:
-        if period_selection == "Median":
-            # Simple median filter
-            window = 21
-            processed_pressure = np.array([
-                np.median(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
-                for i in range(len(pressure_data))
-            ])
-            
-        elif period_selection == "Average":
-            # Simple moving average
-            window = 31
-            processed_pressure = np.convolve(pressure_data, np.ones(window)/window, mode='same')
-            
-        elif period_selection == "Maximum":
-            # Create upper envelope - VERY obvious difference
-            window = 51
-            processed_pressure = np.array([
-                np.max(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
-                for i in range(len(pressure_data))
-            ])
-            
-        elif period_selection == "Minimum":
-            # Create lower envelope - VERY obvious difference
-            window = 51
-            processed_pressure = np.array([
-                np.min(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
-                for i in range(len(pressure_data))
-            ])
-            
-        elif period_selection == "Outer Envelope":
-            # Amplify peaks significantly
-            baseline = np.median(pressure_data)
-            processed_pressure = baseline + (pressure_data - baseline) * 1.5
-            
-        elif period_selection == "Inner Envelope":
-            # Compress towards median
-            baseline = np.median(pressure_data)
-            processed_pressure = baseline + (pressure_data - baseline) * 0.3
-            
-        else:
-            # Unknown selection - return original (SAFE FALLBACK)
-            return pressure_data
+        # Trim to complete revolutions only
+        trimmed_length = num_revolutions * samples_per_rev
+        trimmed_data = pressure_data[:trimmed_length]
+        pressure_matrix = trimmed_data.reshape(num_revolutions, samples_per_rev)
         
-        # SAFETY CHECK: Make sure processed data is valid
-        if processed_pressure is None or len(processed_pressure) == 0:
-            print(f"Period processing returned empty data for {period_selection}")
+        # Apply period selection processing
+        if period_selection == "Median":
+            processed_pressure = np.median(pressure_matrix, axis=0)
+        elif period_selection == "Average":
+            processed_pressure = np.mean(pressure_matrix, axis=0)
+        elif period_selection == "Maximum":
+            processed_pressure = np.max(pressure_matrix, axis=0)
+        elif period_selection == "Minimum":
+            processed_pressure = np.min(pressure_matrix, axis=0)
+        elif period_selection == "Outer Envelope":
+            # Outer envelope: maximum values
+            processed_pressure = np.max(pressure_matrix, axis=0)
+        elif period_selection == "Inner Envelope":
+            # Inner envelope: minimum values
+            processed_pressure = np.min(pressure_matrix, axis=0)
+        elif period_selection == "All periods":
+            # Return original data (no processing)
             return pressure_data
-            
-        # SAFETY CHECK: Make sure no all-zeros
-        if np.all(processed_pressure == 0):
-            print(f"Period processing returned all zeros for {period_selection}")
-            return pressure_data
-            
-        return processed_pressure
+        else:
+            # Default to median if unknown selection
+            processed_pressure = np.median(pressure_matrix, axis=0)
+        
+        # Extend processed data to match original length
+        # Repeat the pattern to fill the original length
+        repetitions = len(pressure_data) // len(processed_pressure)
+        remainder = len(pressure_data) % len(processed_pressure)
+        
+        extended_pressure = np.tile(processed_pressure, repetitions)
+        if remainder > 0:
+            extended_pressure = np.concatenate([extended_pressure, processed_pressure[:remainder]])
+        
+        return extended_pressure
         
     except Exception as e:
-        print(f"Enhanced period processing failed for {period_selection}: {e}")
-        return pressure_data  # ALWAYS return original data on error
+        # If reshaping fails, return original data
+        print(f"Period processing failed: {e}")
+        return pressure_data
+
 # --- Main Application ---
 
 db_client = init_db()
@@ -2689,15 +2685,6 @@ with st.sidebar:
                         st.sidebar.error(f"{status} {signal_name}")
             else:
                 st.sidebar.info("No pressure signals selected for validation")
-
-            # === ADD THIS DEBUG SECTION RIGHT HERE ===
-            st.sidebar.markdown("---")
-            st.sidebar.markdown("**🔧 Debug Info:**")
-            st.sidebar.write(f"Selected Period: {pressure_options.get('period_selection', 'None')}")
-            st.sidebar.write(f"CE PT enabled: {pressure_options.get('show_ce_pt', False)}")
-            st.sidebar.write(f"HE PT enabled: {pressure_options.get('show_he_pt', False)}")
-            # === END DEBUG SECTION ===
-    
     clearance_pct = st.number_input(
         "Clearance (%)",
         min_value=0.0,
