@@ -488,15 +488,7 @@ def enhanced_file_upload_section():
         key=f"file_uploader_{st.session_state.file_uploader_key}",
         help="Upload exactly 3 XML files: one each for Curves, Levels, and Source data"
     )
-    # TEMPORARY DEBUG - Add this to see what curve names exist
-    if 'curves' in files_content:
-        df_temp, actual_curve_names_temp = load_all_curves_data(files_content['curves'])
-        if actual_curve_names_temp:
-            st.write("🔧 **DEBUG: All available curve names:**")
-            for name in sorted(actual_curve_names_temp):
-                if 'PRESSURE' in name.upper() or 'COMPRESSOR PT' in name.upper():
-                    st.write(f"  - {name}")
-                    
+                       
     if st.button("Start New Analysis / Clear Files"):
         st.session_state.file_uploader_key += 1
         st.session_state.active_session_id = None
