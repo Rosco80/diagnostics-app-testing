@@ -1090,6 +1090,7 @@ def render_cylinder_selection_sidebar(cylinders_config):
         (c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), 
         None
     )
+    st.session_state['selected_cylinder_name'] = selected_cylinder_name
     
     return selected_cylinder_name, selected_cylinder_config
 
@@ -2671,11 +2672,20 @@ with st.sidebar:
         df = st.session_state.analysis_results['df']
         discovered_config = st.session_state.analysis_results['discovered_config']
         
-        # Get current cylinder selection (we need to find this from your existing cylinder selection)
+        
+        # Get current cylinder selection - MATCH THE SELECTED CYLINDER
         cylinders = discovered_config.get("cylinders", [])
         if cylinders:
-            # Use first cylinder by default (you can enhance this later to match selected cylinder)
-            cylinder_config = cylinders[0]
+            # FIXED: Use the actually selected cylinder, not always cylinder[0]
+            selected_cylinder_name = st.session_state.get('selected_cylinder_name', 'Cylinder 1')
+    
+            # Find the config for the currently selected cylinder
+            cylinder_config = next(
+                (c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), 
+                cylinders[0]  # Fallback to first cylinder
+            )
+    
+            st.sidebar.write(f"🔧 Validating signals for: {cylinder_config.get('cylinder_name', 'Unknown')}")    
             
             # Run signal validation
             validation_status = validate_pressure_signals(df, cylinder_config, pressure_options)
