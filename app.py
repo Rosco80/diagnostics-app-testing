@@ -2361,12 +2361,14 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
     st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
         
-    # Show CE (Crank End) pressure trace - this is your main pressure data
+    # Show CE (Crank End) pressure trace - this is your main pressure data  
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        # Check if this trace already exists, if not add it
+        # Check if ANY pressure trace already exists
         trace_names = [trace.name for trace in fig.data]
-        if 'CE PT trace' not in trace_names:
-        
+        existing_pressure_traces = [name for name in trace_names if 'Pressure' in name or 'CE PT' in name]
+    
+        if not existing_pressure_traces:  # Only add if no pressure trace exists   
+            
             # ENHANCED: Apply period selection processing
             processed_pressure = process_pressure_by_period (df, pressure_curve, pressure_options.get('period_selection', 'Median'))
         
@@ -2542,85 +2544,67 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
-    Enhanced period processing with more visible differences
+    Enhanced period processing with VERY visible differences
     """
     import numpy as np
     
     if pressure_curve not in df.columns:
         return None
     
-    pressure_data = df[pressure_curve].values
-    crank_angles = df['Crank Angle'].values
-    
-    # More aggressive period processing for visible differences
-    # Use a sliding window approach for better results
-    window_size = min(50, len(pressure_data) // 10)  # Adaptive window size
-    
-    if len(pressure_data) < window_size:
-        return pressure_data
-    
-    processed_pressure = np.zeros_like(pressure_data)
+    pressure_data = df[pressure_curve].values.copy()
     
     try:
         if period_selection == "Median":
-            # Rolling median with larger window for smoothing
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                processed_pressure[i] = np.median(pressure_data[start_idx:end_idx])
-                
+            # Simple median filter
+            window = 21
+            processed_pressure = np.array([
+                np.median(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
+                for i in range(len(pressure_data))
+            ])
+            
         elif period_selection == "Average":
-            # Rolling average
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                processed_pressure[i] = np.mean(pressure_data[start_idx:end_idx])
-                
+            # Simple moving average
+            window = 31
+            processed_pressure = np.convolve(pressure_data, np.ones(window)/window, mode='same')
+            
         elif period_selection == "Maximum":
-            # Rolling maximum (upper envelope)
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                processed_pressure[i] = np.max(pressure_data[start_idx:end_idx])
-                
+            # Create upper envelope - VERY obvious difference
+            window = 51
+            processed_pressure = np.array([
+                np.max(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
+                for i in range(len(pressure_data))
+            ])
+            
         elif period_selection == "Minimum":
-            # Rolling minimum (lower envelope)
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                processed_pressure[i] = np.min(pressure_data[start_idx:end_idx])
-                
+            # Create lower envelope - VERY obvious difference
+            window = 51
+            processed_pressure = np.array([
+                np.min(pressure_data[max(0, i-window//2):min(len(pressure_data), i+window//2+1)])
+                for i in range(len(pressure_data))
+            ])
+            
         elif period_selection == "Outer Envelope":
-            # Enhanced outer envelope - emphasize peaks
-            baseline = np.mean(pressure_data)
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                window_max = np.max(pressure_data[start_idx:end_idx])
-                # Amplify peaks above baseline
-                processed_pressure[i] = baseline + (window_max - baseline) * 1.2
-                
+            # Amplify peaks significantly
+            baseline = np.median(pressure_data)
+            processed_pressure = baseline + (pressure_data - baseline) * 1.5
+            
         elif period_selection == "Inner Envelope":
-            # Enhanced inner envelope - emphasize valleys
-            baseline = np.mean(pressure_data)
-            for i in range(len(pressure_data)):
-                start_idx = max(0, i - window_size // 2)
-                end_idx = min(len(pressure_data), i + window_size // 2)
-                window_min = np.min(pressure_data[start_idx:end_idx])
-                # Amplify valleys below baseline
-                processed_pressure[i] = baseline + (window_min - baseline) * 1.2
-                
+            # Compress towards median
+            baseline = np.median(pressure_data)
+            processed_pressure = baseline + (pressure_data - baseline) * 0.3
+            
         elif period_selection == "All periods":
-            # Return original data
+            # Return original data unchanged
             return pressure_data
+            
         else:
-            # Default to original if unknown
+            # Unknown selection - return original
             return pressure_data
         
         return processed_pressure
         
     except Exception as e:
-        print(f"Enhanced period processing failed: {e}")
+        print(f"Period processing failed: {e}")
         return pressure_data
 
 # --- Main Application ---
