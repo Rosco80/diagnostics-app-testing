@@ -2344,7 +2344,8 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
     
     return validation_results
 
-def apply_pressure_options_to_plot_original(fig, df, cylinder_config, pressure_options, files_content): apply_pressure_options_to_plot = apply_enhanced_pressure_options_to_plot   
+def apply_pressure_options_to_plot_original(fig, df, cylinder_config, pressure_options, files_content): 
+    apply_pressure_options_to_plot = apply_enhanced_pressure_options_to_plot   
     if not pressure_options['enable_pressure']:
         return fig
     
