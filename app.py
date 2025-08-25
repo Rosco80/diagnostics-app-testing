@@ -2364,14 +2364,14 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         
     # Show CE (Crank End) pressure trace - this is your main pressure data  
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        # Check if ANY pressure trace already exists
+        # Check if ANY pressure trace already exists - FIX THE NONE CHECK
         trace_names = [trace.name for trace in fig.data]
-        existing_pressure_traces = [name for name in trace_names if 'Pressure' in name or 'CE PT' in name]
+        existing_pressure_traces = [name for name in trace_names if name and ('Pressure' in name or 'CE PT' in name)]
     
         if not existing_pressure_traces:  # Only add if no pressure trace exists   
             
             # ENHANCED: Apply period selection processing
-            processed_pressure = process_pressure_by_period (df, pressure_curve, pressure_options.get('period_selection', 'Median'))
+            processed_pressure = process_pressure_by_period(df, pressure_curve, pressure_options.get('period_selection', 'Median'))
         
             if processed_pressure is not None:
                 trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
@@ -2387,6 +2387,22 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
                     secondary_y=False
                 )
             
+                # Add debug info
+                st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
+            else:
+                # Fallback to original data
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=df[pressure_curve],
+                        name='CE PT trace (Raw)',
+                        line=dict(color=colors['ce_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+    
+           
                 # Add debug info
                 st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
             else:
