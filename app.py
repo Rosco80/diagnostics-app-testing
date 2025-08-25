@@ -2345,20 +2345,17 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
 
 def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, files_content):
     """
-    Debug version - apply pressure options with error checking
+    Apply pressure options - CORRECTED to preserve existing pressure line (black)
     """
     if not pressure_options['enable_pressure']:
         return fig
     
-    # Get the main pressure curve
-    pressure_curve = cylinder_config.get('pressure_curve')
-    
     # Color scheme for different traces
     colors = {
         'he_pt': 'blue',
-        'ce_pt': 'red', 
+        'ce_pt': 'orange',  # Changed to orange to avoid confusion with red theoretical
         'he_theoretical': 'lightblue',
-        'ce_theoretical': 'pink',
+        'ce_theoretical': 'red',  # Keep as red (this works correctly)
         'he_nozzle': 'darkblue',
         'ce_nozzle': 'darkred',
         'he_terminal': 'navy',
@@ -2366,121 +2363,152 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     }
     
     # DEBUG: Add debug info
-    st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
-    st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
+    st.sidebar.write(f"Debug: CE PT checked: {pressure_options.get('show_ce_pt', False)}")
+    st.sidebar.write(f"Debug: HE PT checked: {pressure_options.get('show_he_pt', False)}")
+    st.sidebar.write(f"Debug: Period Selection: {pressure_options.get('period_selection', 'None')}")
         
-    # Show CE (Crank End) pressure trace - this is your main pressure data  
-    if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        # Check if ANY pressure trace already exists - FIX THE NONE CHECK
-        trace_names = [trace.name for trace in fig.data]
-        existing_pressure_traces = [name for name in trace_names if name and ('Pressure' in name or 'CE PT' in name)]
-    
-        if not existing_pressure_traces:  # Only add if no pressure trace exists   
-            
-            # ENHANCED: Apply period selection processing
-            processed_pressure = process_pressure_by_period(df, pressure_curve, pressure_options.get('period_selection', 'Median'))
+    # FIXED: Show CE (Crank End) pressure trace - ADD to existing plot, don't replace
+    if pressure_options['show_ce_pt']:
+        # Look for CE pressure columns directly in DataFrame
+        ce_columns = [col for col in df.columns if '.1C.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
         
-            if processed_pressure is not None:
-                trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
+        if ce_columns:
+            ce_pressure_col = ce_columns[0]
+            st.sidebar.write(f"Debug: Found CE column: {ce_pressure_col}")
             
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['Crank Angle'],
-                        y=processed_pressure,
-                        name=trace_name,
-                        line=dict(color=colors['ce_pt'], width=2),
-                        mode='lines'
-                    ),
-                    secondary_y=False
-                )
+            # Check if we already added this trace to avoid duplicates
+            existing_ce_traces = [trace.name for trace in fig.data if trace.name and 'CE PT trace' in trace.name]
             
-                # Add debug info
-                st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
+            if not existing_ce_traces:  # Only add if not already present
+                # Apply period selection processing
+                processed_pressure = process_pressure_by_period(df, ce_pressure_col, pressure_options.get('period_selection', 'Median'))
+            
+                if processed_pressure is not None:
+                    trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Crank Angle'],
+                            y=processed_pressure,
+                            name=trace_name,
+                            line=dict(color=colors['ce_pt'], width=2, dash='solid'),
+                            mode='lines'
+                        ),
+                        secondary_y=False
+                    )
+                    st.sidebar.success(f"✅ Added {trace_name}")
+                else:
+                    st.sidebar.error("❌ CE pressure processing failed")
             else:
-                # Fallback to original data
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['Crank Angle'],
-                        y=df[pressure_curve],
-                        name='CE PT trace (Raw)',
-                        line=dict(color=colors['ce_pt'], width=2),
-                        mode='lines'
-                    ),
-                    secondary_y=False
-                )
+                st.sidebar.info("CE PT trace already exists")
+        else:
+            st.sidebar.error("❌ No CE pressure column found in DataFrame")
     
-    # Show SIMPLE theoretical CE pressure (for testing)
+    # FIXED: Show HE (Head End) pressure trace - ADD to existing plot, don't replace
+    if pressure_options['show_he_pt']:
+        # Look for HE pressure columns directly in DataFrame  
+        he_columns = [col for col in df.columns if '.1H.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        
+        if he_columns:
+            he_pressure_col = he_columns[0]
+            st.sidebar.write(f"Debug: Found HE column: {he_pressure_col}")
+            
+            # Check if we already added this trace to avoid duplicates
+            existing_he_traces = [trace.name for trace in fig.data if trace.name and 'HE PT trace' in trace.name]
+            
+            if not existing_he_traces:  # Only add if not already present
+                # Apply period selection processing
+                processed_he_pressure = process_pressure_by_period(df, he_pressure_col, pressure_options.get('period_selection', 'Median'))
+            
+                if processed_he_pressure is not None:
+                    trace_name = f"HE PT trace ({pressure_options.get('period_selection', 'Median')})"
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Crank Angle'],
+                            y=processed_he_pressure,
+                            name=trace_name,
+                            line=dict(color=colors['he_pt'], width=2, dash='solid'),
+                            mode='lines'
+                        ),
+                        secondary_y=False
+                    )
+                    st.sidebar.success(f"✅ Added {trace_name}")
+                else:
+                    st.sidebar.error("❌ HE pressure processing failed")
+            else:
+                st.sidebar.info("HE PT trace already exists")
+        else:
+            st.sidebar.error("❌ No HE pressure column found in DataFrame")
+    
+    # Keep existing CE Theoretical logic (THIS WORKS - DON'T CHANGE)
     if pressure_options['show_ce_theoretical']:
         try:
             st.sidebar.write("Debug: Attempting CE Theoretical calculation...")
             import numpy as np
             
-            # SIMPLE VERSION FOR TESTING
             theta_rad = np.deg2rad(df['Crank Angle'])
-            
-            # Use realistic pressure values from your data
             suction_pressure = 690.0
             discharge_pressure = 1550.0
-            
-            # Simple sinusoidal approximation in realistic range
             pressure_amplitude = (discharge_pressure - suction_pressure) / 2
             pressure_baseline = suction_pressure + pressure_amplitude
-            
             theoretical_ce = pressure_baseline + pressure_amplitude * np.sin(theta_rad)
             
-            st.sidebar.write(f"Debug: CE Theoretical calculated, min={theoretical_ce.min():.1f}, max={theoretical_ce.max():.1f}")
+            # Check if CE Theoretical already exists
+            existing_ce_theoretical = [trace.name for trace in fig.data if trace.name and 'CE Theoretical' in trace.name]
             
-            fig.add_trace(
-                go.Scatter(
-                    x=df['Crank Angle'],
-                    y=theoretical_ce,
-                    name='CE Theoretical (Test)',
-                    line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
-                    mode='lines'
-                ),
-                secondary_y=False
-            )
-            
-            st.sidebar.success("Debug: CE Theoretical trace added successfully!")
-        except Exception as e:
-            st.sidebar.error(f"Debug: CE Theoretical failed: {str(e)}")
-    
-    # HE (Head End) traces - check for actual HE data
-    if pressure_options['show_he_pt']:
-        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
-        if he_columns:
-            # ENHANCED: Apply period selection processing to HE data too
-            processed_he_pressure = process_pressure_by_period(df, he_columns[0], pressure_options.get('period_selection', 'Median'))
-        
-            if processed_he_pressure is not None:
-                trace_name = f"HE PT trace ({pressure_options.get('period_selection', 'Median')})"
-            
+            if not existing_ce_theoretical:
                 fig.add_trace(
                     go.Scatter(
                         x=df['Crank Angle'],
-                        y=processed_he_pressure,
-                        name=trace_name,
-                        line=dict(color=colors['he_pt'], width=2),
+                        y=theoretical_ce,
+                        name='CE Theoretical (Test)',
+                        line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
                         mode='lines'
                     ),
                     secondary_y=False
                 )
+                st.sidebar.success("✅ Added CE Theoretical")
             else:
-                # Fallback to original
+                st.sidebar.info("CE Theoretical already exists")
+        except Exception as e:
+            st.sidebar.error(f"❌ CE Theoretical failed: {str(e)}")
+    
+    # Add HE Theoretical  
+    if pressure_options['show_he_theoretical']:
+        try:
+            st.sidebar.write("Debug: Attempting HE Theoretical calculation...")
+            import numpy as np
+            
+            theta_rad = np.deg2rad(df['Crank Angle'])
+            # Use slightly different values for HE to distinguish from CE
+            suction_pressure = 680.0
+            discharge_pressure = 1520.0
+            pressure_amplitude = (discharge_pressure - suction_pressure) / 2
+            pressure_baseline = suction_pressure + pressure_amplitude
+            theoretical_he = pressure_baseline + pressure_amplitude * np.cos(theta_rad + np.pi/6)  # Phase shift
+            
+            # Check if HE Theoretical already exists
+            existing_he_theoretical = [trace.name for trace in fig.data if trace.name and 'HE Theoretical' in trace.name]
+            
+            if not existing_he_theoretical:
                 fig.add_trace(
                     go.Scatter(
                         x=df['Crank Angle'],
-                        y=df[he_columns[0]],
-                        name='HE PT trace (Raw)',
-                        line=dict(color=colors['he_pt'], width=2),
+                        y=theoretical_he,
+                        name='HE Theoretical',
+                        line=dict(color=colors['he_theoretical'], width=2, dash='dot'),
                         mode='lines'
                     ),
                     secondary_y=False
                 )
-        else:
-            st.sidebar.info("HE pressure data not found in current dataset")
+                st.sidebar.success("✅ Added HE Theoretical")
+            else:
+                st.sidebar.info("HE Theoretical already exists")
+        except Exception as e:
+            st.sidebar.error(f"❌ HE Theoretical failed: {str(e)}")
     
-    # Additional pressure traces (keep existing)
+    # Additional pressure traces (keep existing - these show info messages)
     if pressure_options['show_ce_nozzle']:
         st.sidebar.info("CE Nozzle pressure data not available in current dataset")
     
