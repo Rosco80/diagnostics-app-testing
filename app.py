@@ -2276,53 +2276,60 @@ def render_pressure_options_sidebar():
 
 def validate_pressure_signals(df, cylinder_config, pressure_options):
     """
-    HolizTech-style signal validation - returns ✅ or ❌ for each signal
+    HolizTech-style signal validation - FIXED to use actual CURVES data instead of LEVELS data
+    Returns ✅ or ❌ for each signal based on the actual time-series data quality
     """
     validation_results = {}
     
-    # Get the main pressure curve
-    pressure_curve = cylinder_config.get('pressure_curve')
-    
-    # Check CE PT trace (main pressure data)
-    if pressure_options.get('show_ce_pt', False) and pressure_curve and pressure_curve in df.columns:
-        pressure_data = df[pressure_curve]
+    # FIXED: Check CE PT trace using actual time-series data from df (CURVES.xml)
+    if pressure_options.get('show_ce_pt', False):
+        # Look for CE pressure columns in the actual DataFrame
+        ce_columns = [col for col in df.columns if '.1C.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
         
-        # Quality checks
-        has_data = len(pressure_data) > 0
-        no_all_zeros = not (pressure_data == 0).all()
-        reasonable_range = (pressure_data.min() > 100) and (pressure_data.max() < 5000)  # PSI range
-        no_excessive_spikes = (pressure_data.std() < 1000)  # Not too erratic
-        
-        is_valid = has_data and no_all_zeros and reasonable_range and no_excessive_spikes
-        validation_results['CE PT trace'] = "✅" if is_valid else "❌"
+        if ce_columns and len(ce_columns) > 0:
+            ce_pressure_data = df[ce_columns[0]]  # Use the actual time-series data
+            
+            # Quality checks on the actual time-series data
+            has_data = len(ce_pressure_data) > 0
+            no_all_zeros = not (ce_pressure_data == 0).all()
+            has_variation = ce_pressure_data.std() > 1.0  # Some variation in the data
+            reasonable_range = (ce_pressure_data.min() >= 0) and (ce_pressure_data.max() < 10000)  # Broader range
+            no_excessive_spikes = (ce_pressure_data.std() < 2000)  # Not too erratic
+            
+            is_valid = has_data and no_all_zeros and has_variation and reasonable_range and no_excessive_spikes
+            validation_results['CE PT trace'] = "✅" if is_valid else "❌"
+        else:
+            validation_results['CE PT trace'] = "❌"  # No CE data found in time-series
     
-    # Check CE Theoretical 
-    if pressure_options.get('show_ce_theoretical', False):
-        # Theoretical is always valid if enabled
-        validation_results['CE Theoretical'] = "✅"
-    
-    # Check HE PT trace
+    # FIXED: Check HE PT trace using actual time-series data from df (CURVES.xml)
     if pressure_options.get('show_he_pt', False):
-        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
-        if he_columns and he_columns[0] in df.columns:
-            he_data = df[he_columns[0]]
+        # Look for HE pressure columns in the actual DataFrame
+        he_columns = [col for col in df.columns if '.1H.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        
+        if he_columns and len(he_columns) > 0:
+            he_pressure_data = df[he_columns[0]]  # Use the actual time-series data
             
-            # Same quality checks as CE
-            has_data = len(he_data) > 0
-            no_all_zeros = not (he_data == 0).all()
-            reasonable_range = (he_data.min() > 100) and (he_data.max() < 5000)
-            no_excessive_spikes = (he_data.std() < 1000)
+            # Same quality checks as CE but on actual time-series data
+            has_data = len(he_pressure_data) > 0
+            no_all_zeros = not (he_pressure_data == 0).all()
+            has_variation = he_pressure_data.std() > 1.0  # Some variation in the data  
+            reasonable_range = (he_pressure_data.min() >= 0) and (he_pressure_data.max() < 10000)  # Broader range
+            no_excessive_spikes = (he_pressure_data.std() < 2000)  # Not too erratic
             
-            is_valid = has_data and no_all_zeros and reasonable_range and no_excessive_spikes
+            is_valid = has_data and no_all_zeros and has_variation and reasonable_range and no_excessive_spikes
             validation_results['HE PT trace'] = "✅" if is_valid else "❌"
         else:
-            validation_results['HE PT trace'] = "❌"  # No data found
+            validation_results['HE PT trace'] = "❌"  # No HE data found in time-series
     
-    # Check HE Theoretical
+    # Check CE Theoretical (this always works since it's generated)
+    if pressure_options.get('show_ce_theoretical', False):
+        validation_results['CE Theoretical'] = "✅"
+    
+    # Check HE Theoretical (this always works since it's generated)
     if pressure_options.get('show_he_theoretical', False):
         validation_results['HE Theoretical'] = "✅"
     
-    # Check additional pressure traces
+    # Check additional pressure traces (currently not available)
     additional_checks = [
         ('show_ce_nozzle', 'CE Nozzle pressure'),
         ('show_he_nozzle', 'HE Nozzle pressure'), 
@@ -2332,7 +2339,7 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
     
     for option_key, display_name in additional_checks:
         if pressure_options.get(option_key, False):
-            validation_results[display_name] = "❌"  # Currently no data available
+            validation_results[display_name] = "❌"  # Currently no data available for these
     
     return validation_results
 
