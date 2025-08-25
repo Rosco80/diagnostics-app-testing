@@ -2497,7 +2497,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
                         x=df['Crank Angle'],
                         y=theoretical_he,
                         name='HE Theoretical',
-                        line=dict(color=colors['he_theoretical'], width=2, dash='dot'),
+                        line=dict(color=colors['he_theoretical'], width=3, dash='dash'),
                         mode='lines'
                     ),
                     secondary_y=False
