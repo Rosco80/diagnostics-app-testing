@@ -2354,7 +2354,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     colors = {
         'he_pt': 'blue',
         'ce_pt': 'orange',  # Changed to orange to avoid confusion with red theoretical
-        'he_theoretical': 'lightblue',
+        'he_theoretical': 'darkgreen',
         'ce_theoretical': 'red',  # Keep as red (this works correctly)
         'he_nozzle': 'darkblue',
         'ce_nozzle': 'darkred',
