@@ -2402,21 +2402,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
                     secondary_y=False
                 )
     
-           
-                # Add debug info
-                st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
-            else:
-                # Fallback to original data
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['Crank Angle'],
-                        y=df[pressure_curve],
-                        name='CE PT trace (Raw)',
-                        line=dict(color=colors['ce_pt'], width=2),
-                        mode='lines'
-                    ),
-                    secondary_y=False
-                )
     # Show SIMPLE theoretical CE pressure (for testing)
     if pressure_options['show_ce_theoretical']:
         try:
@@ -2450,69 +2435,13 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
             )
             
             st.sidebar.success("Debug: CE Theoretical trace added successfully!")
-            
         except Exception as e:
             st.sidebar.error(f"Debug: CE Theoretical failed: {str(e)}")
     
-    # Show SIMPLE theoretical HE pressure (for testing)
-    if pressure_options['show_he_theoretical']:
-        try:
-            st.sidebar.write("Debug: Attempting HE Theoretical calculation...")
-            import numpy as np
-            
-            # SIMPLE VERSION FOR TESTING  
-            theta_rad = np.deg2rad(df['Crank Angle'])
-            
-            # HE parameters (slightly different from CE)
-            he_suction = 650.0
-            he_discharge = 1400.0
-            
-            # Simple sinusoidal approximation in realistic range
-            pressure_amplitude = (he_discharge - he_suction) / 2
-            pressure_baseline = he_suction + pressure_amplitude
-            
-            theoretical_he = pressure_baseline + pressure_amplitude * np.sin(theta_rad + np.pi/4)
-            
-            st.sidebar.write(f"Debug: HE Theoretical calculated, min={theoretical_he.min():.1f}, max={theoretical_he.max():.1f}")
-            
-            fig.add_trace(
-                go.Scatter(
-                    x=df['Crank Angle'],
-                    y=theoretical_he,
-                    name='HE Theoretical (Test)',
-                    line=dict(color=colors['he_theoretical'], width=2, dash='dash'),
-                    mode='lines'
-                ),
-                secondary_y=False
-            )
-            
-            st.sidebar.success("Debug: HE Theoretical trace added successfully!")
-            
-        except Exception as e:
-            st.sidebar.error(f"Debug: HE Theoretical failed: {str(e)}")
-    
     # HE (Head End) traces - check for actual HE data
     if pressure_options['show_he_pt']:
         he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
         if he_columns:
-            fig.add_trace(
-                go.Scatter(
-                    x=df['Crank Angle'],
-                    y=df[he_columns[0]],
-                    name='HE PT trace',
-                    line=dict(color=colors['he_pt'], width=2),
-                    mode='lines'
-                ),
-                secondary_y=False
-            )
-        else:
-            st.sidebar.info("HE pressure data not found in current dataset")
-
-    # HE (Head End) traces - check for actual HE data
-    if pressure_options['show_he_pt']:
-        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
-        if he_columns:
-        
             # ENHANCED: Apply period selection processing to HE data too
             processed_he_pressure = process_pressure_by_period(df, he_columns[0], pressure_options.get('period_selection', 'Median'))
         
@@ -2561,7 +2490,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
-    Enhanced period processing with more visible differences - SAFE VERSION
+    Enhanced period processing with VERY visible differences
     """
     import numpy as np
     
@@ -2569,10 +2498,6 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
         return None
     
     pressure_data = df[pressure_curve].values.copy()
-    
-    # SAFETY: Always return original data for "All periods" first
-    if period_selection == "All periods":
-        return pressure_data
     
     try:
         if period_selection == "Median":
@@ -2584,7 +2509,7 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
             ])
             
         elif period_selection == "Average":
-            # Simple moving average
+            # Simple moving average - FIX THE INCOMPLETE LINE
             window = 31
             processed_pressure = np.convolve(pressure_data, np.ones(window)/window, mode='same')
             
@@ -2614,25 +2539,19 @@ def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
             baseline = np.median(pressure_data)
             processed_pressure = baseline + (pressure_data - baseline) * 0.3
             
+        elif period_selection == "All periods":
+            # Return original data unchanged
+            return pressure_data
+            
         else:
-            # Unknown selection - return original (SAFE FALLBACK)
+            # Unknown selection - return original
             return pressure_data
         
-        # SAFETY CHECK: Make sure processed data is valid
-        if processed_pressure is None or len(processed_pressure) == 0:
-            print(f"Period processing returned empty data for {period_selection}")
-            return pressure_data
-            
-        # SAFETY CHECK: Make sure no all-zeros
-        if np.all(processed_pressure == 0):
-            print(f"Period processing returned all zeros for {period_selection}")
-            return pressure_data
-            
         return processed_pressure
         
     except Exception as e:
-        print(f"Enhanced period processing failed for {period_selection}: {e}")
-        return pressure_data  # ALWAYS return original data on error
+        print(f"Period processing failed: {e}")
+        return pressure_data
 # --- Main Application ---
 
 db_client = init_db()
