@@ -2374,8 +2374,9 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
         
     # PRESERVE EXISTING CE PT TRACE FUNCTIONALITY EXACTLY
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        # Check if a CE PT trace already exists to prevent duplicates
-        existing_pressure_traces = [trace.name for trace in fig.data if 'CE PT' in trace.name]
+        # Check if a CE PT trace already exists to prevent duplicates.
+        # Use getattr to safely handle fig.data being None.
+        existing_pressure_traces = [trace.name for trace in getattr(fig, 'data', []) if 'CE PT' in trace.name]
     
         if not existing_pressure_traces:
             # Apply existing period selection processing (PRESERVE EXISTING FEATURE)
@@ -2552,7 +2553,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
         # This part of the code had an issue with how it checked for existing traces
         # We need to ensure we don't duplicate the trace on every rerun
         he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
-        existing_he_traces = [trace.name for trace in fig.data if 'HE' in trace.name and 'Theoretical' not in trace.name]
+        existing_he_traces = [trace.name for trace in getattr(fig, 'data', []) if 'HE' in trace.name and 'Theoretical' not in trace.name]
         
         if he_columns and he_columns[0] in df.columns and not existing_he_traces:
             fig.add_trace(
