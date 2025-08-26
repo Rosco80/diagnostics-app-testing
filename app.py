@@ -19,6 +19,7 @@ import libsql_client
 from sklearn.ensemble import IsolationForest
 import plotly.express as px
 import math
+from typing import Dict, Any, Optional
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -2726,7 +2727,7 @@ def calculate_real_theoretical_pressure(
     suction_pressure: float,
     discharge_pressure: float,
     clearance_pct: float = 5.0
-) -> Dict[str, np.ndarray]:
+) -> Dict[str, Any]:
     """
     Calculate real theoretical pressure using proper thermodynamic cycle equations
     """
@@ -2815,7 +2816,6 @@ def estimate_volumetric_efficiency(compression_ratio: float, clearance_ratio: fl
 
 def apply_simple_ce_theoretical(df, colors, fig, st):
     """Fallback to simple CE theoretical calculation (PRESERVES EXISTING)"""
-    import numpy as np
     theta_rad = np.deg2rad(df['Crank Angle'])
     suction_pressure = 690.0
     discharge_pressure = 1550.0
@@ -2838,7 +2838,6 @@ def apply_simple_ce_theoretical(df, colors, fig, st):
 
 def apply_simple_he_theoretical(df, colors, fig, st):
     """Fallback to simple HE theoretical calculation (PRESERVES EXISTING)"""
-    import numpy as np
     theta_rad = np.deg2rad(df['Crank Angle'])
     he_suction = 650.0
     he_discharge = 1400.0
@@ -2858,6 +2857,240 @@ def apply_simple_he_theoretical(df, colors, fig, st):
     )
     st.sidebar.info("ℹ️ Using simple HE theoretical calculation (fallback)")
     st.sidebar.write(f"Debug: HE Theoretical calculated, min={theoretical_he.min():.1f}, max={theoretical_he.max():.1f}")
+
+def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_options, files_content):
+    """
+    ENHANCED version - apply pressure options with real thermodynamic calculations
+    MAINTAINS ALL EXISTING FUNCTIONALITY as fallbacks
+    """
+    if not pressure_options['enable_pressure']:
+        return fig
+    
+    # Get the main pressure curve
+    pressure_curve = cylinder_config.get('pressure_curve')
+    
+    # Color scheme for different traces (KEEP EXISTING)
+    colors = {
+        'he_pt': 'blue',
+        'ce_pt': 'red', 
+        'he_theoretical': 'lightblue',
+        'ce_theoretical': 'pink',
+        'he_nozzle': 'darkblue',
+        'ce_nozzle': 'darkred',
+        'he_terminal': 'navy',
+        'ce_terminal': 'maroon'
+    }
+    
+    # DEBUG: Add debug info (KEEP EXISTING)
+    st.sidebar.write(f"Debug: CE Theoretical checked: {pressure_options.get('show_ce_theoretical', False)}")
+    st.sidebar.write(f"Debug: HE Theoretical checked: {pressure_options.get('show_he_theoretical', False)}")
+        
+    # PRESERVE EXISTING CE PT TRACE FUNCTIONALITY EXACTLY
+    if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
+        trace_names = [trace.name for trace in fig.data]
+        existing_pressure_traces = [name for name in trace_names if 'Pressure' in name or 'CE PT' in name]
+    
+        if not existing_pressure_traces:
+            # Apply existing period selection processing (PRESERVE EXISTING FEATURE)
+            processed_pressure = process_pressure_by_period(df, pressure_curve, pressure_options.get('period_selection', 'Median'))
+        
+            if processed_pressure is not None:
+                trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=processed_pressure,
+                        name=trace_name,
+                        line=dict(color=colors['ce_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+                st.sidebar.success(f"✅ Applied {pressure_options.get('period_selection', 'Median')} period processing")
+            else:
+                # Fallback to original data (PRESERVE EXISTING FALLBACK)
+                fig.add_trace(
+                    go.Scatter(
+                        x=df['Crank Angle'],
+                        y=df[pressure_curve],
+                        name='CE PT trace (Raw)',
+                        line=dict(color=colors['ce_pt'], width=2),
+                        mode='lines'
+                    ),
+                    secondary_y=False
+                )
+
+    # ENHANCED CE THEORETICAL with REAL CALCULATIONS AND FALLBACKS
+    if pressure_options['show_ce_theoretical']:
+        try:
+            st.sidebar.write("Debug: Attempting Enhanced CE Theoretical calculation...")
+            
+            # Try to extract real thermodynamic parameters from XML
+            if files_content and isinstance(files_content, dict) and 'source' in files_content and 'levels' in files_content:
+                # Extract cylinder index from cylinder config
+                cylinder_name = cylinder_config.get('cylinder_name', 'Cylinder 1')
+                try:
+                    cylinder_index = int(cylinder_name.split()[-1])
+                except:
+                    cylinder_index = 1
+                
+                # Extract real parameters from XML
+                thermo_params = extract_thermodynamic_parameters_from_xml(
+                    files_content['source'], 
+                    files_content['levels'], 
+                    cylinder_index
+                )
+                
+                if thermo_params['extraction_success']:
+                    # Calculate real theoretical pressure using thermodynamic equations
+                    clearance_pct = st.session_state.get('clearance_pct', 5.0)
+                    
+                    theoretical_result = calculate_real_theoretical_pressure(
+                        crank_angle_degrees=df['Crank Angle'].values,
+                        compression_ratio=thermo_params['compression_ratio'],
+                        expansion_n=thermo_params['expansion_n'],
+                        compression_n=thermo_params['compression_n'],
+                        suction_pressure=thermo_params['suction_pressure'],
+                        discharge_pressure=thermo_params['discharge_pressure'],
+                        clearance_pct=clearance_pct
+                    )
+                    
+                    theoretical_pressure = theoretical_result['pressure']
+                    cycle_info = theoretical_result['cycle_info']
+                    
+                    # Add the enhanced theoretical trace
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Crank Angle'],
+                            y=theoretical_pressure,
+                            name='CE Theoretical (Thermodynamic)',
+                            line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
+                            mode='lines',
+                            hovertemplate="<b>Angle:</b> %{x:.1f}°<br>" +
+                                        "<b>Theoretical Pressure:</b> %{y:.1f} PSI<br>" +
+                                        "<b>Based on real XML parameters</b><br>" +
+                                        "<extra></extra>"
+                        ),
+                        secondary_y=False
+                    )
+                    
+                    # Display enhanced cycle information in sidebar
+                    st.sidebar.success("✅ Real CE Theoretical calculated successfully!")
+                    st.sidebar.info(f"📊 **Cycle Analysis:**")
+                    st.sidebar.info(f"Peak Pressure: {cycle_info['peak_pressure']:.1f} PSI")
+                    st.sidebar.info(f"Compression Ratio: {thermo_params['compression_ratio']:.2f}")
+                    st.sidebar.info(f"Vol. Efficiency: {cycle_info['volumetric_efficiency']:.1%}")
+                    st.sidebar.info(f"Expansion n: {thermo_params['expansion_n']:.2f}")
+                    st.sidebar.info(f"Compression n: {thermo_params['compression_n']:.2f}")
+                    
+                else:
+                    # Fallback to simple calculation (PRESERVE EXISTING FUNCTIONALITY)
+                    apply_simple_ce_theoretical(df, colors, fig, st)
+                    
+            else:
+                # Fallback when no XML files available
+                apply_simple_ce_theoretical(df, colors, fig, st)
+                
+        except Exception as e:
+            st.sidebar.error(f"Enhanced CE Theoretical failed: {str(e)}")
+            # Always fallback to simple version (PRESERVE EXISTING)
+            apply_simple_ce_theoretical(df, colors, fig, st)
+
+    # ENHANCED HE THEORETICAL with REAL CALCULATIONS AND FALLBACKS  
+    if pressure_options['show_he_theoretical']:
+        try:
+            st.sidebar.write("Debug: Attempting Enhanced HE Theoretical calculation...")
+            
+            if files_content and isinstance(files_content, dict) and 'source' in files_content and 'levels' in files_content:
+                cylinder_name = cylinder_config.get('cylinder_name', 'Cylinder 1')
+                try:
+                    cylinder_index = int(cylinder_name.split()[-1])
+                except:
+                    cylinder_index = 1
+                
+                thermo_params = extract_thermodynamic_parameters_from_xml(
+                    files_content['source'], 
+                    files_content['levels'], 
+                    cylinder_index
+                )
+                
+                # Adjust parameters for HE (Head End) - typically different pressures
+                thermo_params['suction_pressure'] *= 0.93  # Slightly lower for HE
+                thermo_params['discharge_pressure'] *= 0.90  # Slightly lower for HE
+                
+                if thermo_params['extraction_success']:
+                    clearance_pct = st.session_state.get('clearance_pct', 5.0)
+                    
+                    theoretical_result = calculate_real_theoretical_pressure(
+                        crank_angle_degrees=df['Crank Angle'].values,
+                        compression_ratio=thermo_params['compression_ratio'],
+                        expansion_n=thermo_params['expansion_n'],
+                        compression_n=thermo_params['compression_n'],
+                        suction_pressure=thermo_params['suction_pressure'],
+                        discharge_pressure=thermo_params['discharge_pressure'],
+                        clearance_pct=clearance_pct
+                    )
+                    
+                    theoretical_pressure = theoretical_result['pressure']
+                    
+                    fig.add_trace(
+                        go.Scatter(
+                            x=df['Crank Angle'],
+                            y=theoretical_pressure,
+                            name='HE Theoretical (Thermodynamic)',
+                            line=dict(color=colors['he_theoretical'], width=2, dash='dash'),
+                            mode='lines',
+                            hovertemplate="<b>Angle:</b> %{x:.1f}°<br>" +
+                                        "<b>HE Theoretical:</b> %{y:.1f} PSI<br>" +
+                                        "<extra></extra>"
+                        ),
+                        secondary_y=False
+                    )
+                    
+                    st.sidebar.success("✅ Real HE Theoretical calculated successfully!")
+                    
+                else:
+                    # Fallback to simple calculation
+                    apply_simple_he_theoretical(df, colors, fig, st)
+                    
+            else:
+                apply_simple_he_theoretical(df, colors, fig, st)
+                
+        except Exception as e:
+            st.sidebar.error(f"Enhanced HE Theoretical failed: {str(e)}")
+            apply_simple_he_theoretical(df, colors, fig, st)
+
+    # PRESERVE ALL EXISTING HE PT TRACE FUNCTIONALITY EXACTLY
+    if pressure_options['show_he_pt']:
+        he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
+        if he_columns and he_columns[0] in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=df['Crank Angle'],
+                    y=df[he_columns[0]],
+                    name='HE PT trace (Raw)',
+                    line=dict(color=colors['he_pt'], width=2),
+                    mode='lines'
+                ),
+                secondary_y=False
+            )
+        else:
+            st.sidebar.info("HE pressure data not found in current dataset")
+
+    # PRESERVE ALL EXISTING ADDITIONAL PRESSURE TRACES EXACTLY
+    if pressure_options['show_ce_nozzle']:
+        st.sidebar.info("CE Nozzle pressure data not available in current dataset")
+    
+    if pressure_options['show_he_nozzle']:
+        st.sidebar.info("HE Nozzle pressure data not available in current dataset")
+        
+    if pressure_options['show_ce_terminal']:
+        st.sidebar.info("CE Terminal pressure data not available in current dataset")
+        
+    if pressure_options['show_he_terminal']:
+        st.sidebar.info("HE Terminal pressure data not available in current dataset")
+    
+    return fig
     
 # --- Main Application ---
 
