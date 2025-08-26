@@ -2578,8 +2578,6 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
     
     return fig
 
-apply_pressure_options_to_plot_enhanced = apply_pressure_options_to_plot
-
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
     Enhanced period processing with VERY visible differences
