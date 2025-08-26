@@ -2578,6 +2578,8 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
     
     return fig
 
+apply_pressure_options_to_plot_enhanced = apply_pressure_options_to_plot
+
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
     """
     Enhanced period processing with VERY visible differences
@@ -3253,7 +3255,7 @@ if validated_files:
                 
                 # Apply pressure options to the plot (NEW!)
                 if view_mode == "Crank-angle":  # Only apply to crank-angle view
-                    fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
+                    fig = apply_pressure_options_to_plot_enhanced(fig, df.copy(), selected_cylinder_config, pressure_options, validated_files)
                 
                 # Display the enhanced plot
                 st.plotly_chart(fig, use_container_width=True)
