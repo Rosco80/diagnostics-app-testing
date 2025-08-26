@@ -2349,8 +2349,9 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
     ENHANCED version - apply pressure options with real thermodynamic calculations
     MAINTAINS ALL EXISTING FUNCTIONALITY as fallbacks
     """
-    if not pressure_options['enable_pressure']:
-        return fig
+    if fig is None:
+        st.error("Cannot apply pressure options: Plot object is missing.")
+        return None
     
     # Get the main pressure curve
     pressure_curve = cylinder_config.get('pressure_curve')
@@ -2373,8 +2374,8 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
         
     # PRESERVE EXISTING CE PT TRACE FUNCTIONALITY EXACTLY
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        trace_names = [trace.name for trace in fig.data if trace.name is not None]
-        existing_pressure_traces = [name for name in trace_names if name is not None and ('Pressure' in name or 'CE PT' in name)]
+        # Check if a CE PT trace already exists to prevent duplicates
+        existing_pressure_traces = [trace.name for trace in fig.data if 'CE PT' in trace.name]
     
         if not existing_pressure_traces:
             # Apply existing period selection processing (PRESERVE EXISTING FEATURE)
@@ -2417,7 +2418,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                 cylinder_name = cylinder_config.get('cylinder_name', 'Cylinder 1')
                 try:
                     cylinder_index = int(cylinder_name.split()[-1])
-                except:
+                except ValueError:
                     cylinder_index = 1
                 
                 # Extract real parameters from XML
@@ -2453,9 +2454,9 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                             line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
                             mode='lines',
                             hovertemplate="<b>Angle:</b> %{x:.1f}°<br>" +
-                                        "<b>Theoretical Pressure:</b> %{y:.1f} PSI<br>" +
-                                        "<b>Based on real XML parameters</b><br>" +
-                                        "<extra></extra>"
+                                            "<b>Theoretical Pressure:</b> %{y:.1f} PSI<br>" +
+                                            "<b>Based on real XML parameters</b><br>" +
+                                            "<extra></extra>"
                         ),
                         secondary_y=False
                     )
@@ -2472,7 +2473,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                 else:
                     # Fallback to simple calculation (PRESERVE EXISTING FUNCTIONALITY)
                     apply_simple_ce_theoretical(df, colors, fig, st)
-                    
+                
             else:
                 # Fallback when no XML files available
                 apply_simple_ce_theoretical(df, colors, fig, st)
@@ -2491,7 +2492,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                 cylinder_name = cylinder_config.get('cylinder_name', 'Cylinder 1')
                 try:
                     cylinder_index = int(cylinder_name.split()[-1])
-                except:
+                except ValueError:
                     cylinder_index = 1
                 
                 thermo_params = extract_thermodynamic_parameters_from_xml(
@@ -2527,8 +2528,8 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                             line=dict(color=colors['he_theoretical'], width=2, dash='dash'),
                             mode='lines',
                             hovertemplate="<b>Angle:</b> %{x:.1f}°<br>" +
-                                        "<b>HE Theoretical:</b> %{y:.1f} PSI<br>" +
-                                        "<extra></extra>"
+                                            "<b>HE Theoretical:</b> %{y:.1f} PSI<br>" +
+                                            "<extra></extra>"
                         ),
                         secondary_y=False
                     )
@@ -2538,7 +2539,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                 else:
                     # Fallback to simple calculation
                     apply_simple_he_theoretical(df, colors, fig, st)
-                    
+                
             else:
                 apply_simple_he_theoretical(df, colors, fig, st)
                 
@@ -2548,8 +2549,12 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
 
     # PRESERVE ALL EXISTING HE PT TRACE FUNCTIONALITY EXACTLY
     if pressure_options['show_he_pt']:
+        # This part of the code had an issue with how it checked for existing traces
+        # We need to ensure we don't duplicate the trace on every rerun
         he_columns = [col for col in df.columns if 'HE' in col.upper() or 'HEAD' in col.upper()]
-        if he_columns and he_columns[0] in df.columns:
+        existing_he_traces = [trace.name for trace in fig.data if 'HE' in trace.name and 'Theoretical' not in trace.name]
+        
+        if he_columns and he_columns[0] in df.columns and not existing_he_traces:
             fig.add_trace(
                 go.Scatter(
                     x=df['Crank Angle'],
@@ -2560,10 +2565,11 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
                 ),
                 secondary_y=False
             )
-        else:
+        elif not he_columns:
             st.sidebar.info("HE pressure data not found in current dataset")
 
     # PRESERVE ALL EXISTING ADDITIONAL PRESSURE TRACES EXACTLY
+    # These were simple info messages, which are fine to leave as they were
     if pressure_options['show_ce_nozzle']:
         st.sidebar.info("CE Nozzle pressure data not available in current dataset")
     
