@@ -3253,7 +3253,10 @@ if validated_files:
                 
                 # Apply pressure options to the plot (NEW!)
                 if view_mode == "Crank-angle":  # Only apply to crank-angle view
-                    fig = apply_pressure_options_to_plot_enhanced(fig, df.copy(), selected_cylinder_config, pressure_options, validated_files)
+                    if fig is not None:
+                        fig = apply_pressure_options_to_plot_enhanced(fig, df.copy(), selected_cylinder_config, pressure_options, validated_files)
+                    else:
+                        st.error("Error: The plot could not be generated. Please ensure valid data is uploaded.")    
                 
                 # Display the enhanced plot
                 st.plotly_chart(fig, use_container_width=True)
