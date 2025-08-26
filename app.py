@@ -2373,7 +2373,7 @@ def apply_pressure_options_to_plot_enhanced(fig, df, cylinder_config, pressure_o
         
     # PRESERVE EXISTING CE PT TRACE FUNCTIONALITY EXACTLY
     if pressure_options['show_ce_pt'] and pressure_curve and pressure_curve in df.columns:
-        trace_names = [trace.name for trace in fig.data]
+        trace_names = [trace.name for trace in fig.data if trace.name is not None]
         existing_pressure_traces = [name for name in trace_names if name and ('Pressure' in name or 'CE PT' in name)]
     
         if not existing_pressure_traces:
