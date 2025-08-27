@@ -69,8 +69,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, analysis_id INTEGER, label_text TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
             "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, analysis_id INTEGER, event_type TEXT, crank_angle REAL, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
             "CREATE TABLE IF NOT EXISTS configs (machine_id TEXT PRIMARY KEY, contamination REAL DEFAULT 0.05, pressure_anom_limit INT DEFAULT 10, valve_anom_limit INT DEFAULT 5, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS waveform_data (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))"
+            "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
         ])
         
         return client
@@ -748,50 +747,6 @@ def display_historical_analysis(db_client):
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
 
-def get_cylinder_historical_data(db_client, machine_id=None, cylinder_name=None, days_back=30):
-    """
-    Query historical data for a specific cylinder over time.
-    Returns data suitable for trending analysis.
-    """
-    query = """
-        SELECT 
-            s.timestamp,
-            s.machine_id,
-            a.cylinder_name,
-            SUM(a.anomaly_count) as total_anomalies,
-            COUNT(DISTINCT a.curve_name) as curves_analyzed
-        FROM analyses a
-        JOIN sessions s ON a.session_id = s.id
-        WHERE s.timestamp >= datetime('now', '-{} days')
-    """.format(days_back)
-    
-    params = []
-    
-    if machine_id:
-        query += " AND s.machine_id = ?"
-        params.append(machine_id)
-    
-    if cylinder_name:
-        query += " AND a.cylinder_name = ?"
-        params.append(cylinder_name)
-    
-    query += """
-        GROUP BY s.timestamp, s.machine_id, a.cylinder_name
-        ORDER BY s.timestamp ASC
-    """
-    
-    try:
-        rs = db_client.execute(query, tuple(params))
-        if rs.rows:
-            return pd.DataFrame(rs.rows, columns=[
-                'timestamp', 'machine_id', 'cylinder_name', 
-                'total_anomalies', 'curves_analyzed'
-            ])
-        return pd.DataFrame()
-    except Exception as e:
-        st.error(f"Database query error: {e}")
-        return pd.DataFrame()
-
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
     Applies Isolation Forest to detect anomalies and calculate their scores.
@@ -847,17 +802,6 @@ def compute_health_score(report_data, diagnostics):
 def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
     return rs.rows[0][0] if rs.rows else None
-
-def determine_curve_type(curve_name):
-    """Determine the type of curve based on its name."""
-    name_upper = curve_name.upper()
-    if 'PRESSURE' in name_upper or 'PT' in name_upper:
-        return 'pressure'
-    elif 'VIBRATION' in name_upper:
-        return 'vibration'
-    elif 'ULTRASONIC' in name_upper:
-        return 'ultrasonic'
-    return 'other'
 
 def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
     try:
@@ -2808,14 +2752,7 @@ if validated_files:
                 
                 # Display the enhanced plot
                 st.plotly_chart(fig, use_container_width=True)
-
-                # DEBUG: Check what data we have available
-                print("DEBUG: Checking available data...")
-                print(f"DEBUG: df columns: {list(df.columns)}")
-                print(f"DEBUG: df shape: {df.shape}")
-                print(f"DEBUG: temp_report_data: {temp_report_data}")
-                print(f"DEBUG: selected_cylinder_name: {selected_cylinder_name}")
-
+                
                 # Create or update analysis records in DB
                 analysis_ids = {}
                 for item in temp_report_data:
@@ -2827,53 +2764,8 @@ if validated_files:
                     else:
                         db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
                         analysis_id = get_last_row_id(db_client)
-                    analysis_ids[item['name']] = analysis_id            
-              
-                # Store waveform data for trending analysis (simplified and working)
-                print("DEBUG: Starting waveform data storage...")
-                
-                try:
-                    if not df.empty and 'Crank Angle' in df.columns and temp_report_data:
-                        # Sample data to avoid performance issues - store every Nth point
-                        sample_rate = max(1, len(df) // 500)  # Limit to ~500 points max per curve
-                        df_sampled = df.iloc[::sample_rate].copy()
-                        
-                        print(f"DEBUG: Storing sampled data - {len(df_sampled)} points per curve (sample rate: {sample_rate})")
-                        
-                        stored_count = 0
-                        for item in temp_report_data:
-                            curve_name = item['curve_name']
-                            if curve_name in df_sampled.columns:
-                                curve_type = determine_curve_type(curve_name)
-                                
-                                # Store sample points for this curve only
-                                for index, row in df_sampled.iterrows():
-                                    try:
-                                        crank_angle = float(row['Crank Angle'])
-                                        data_value = float(row[curve_name])
-                                        
-                                        # Skip invalid values
-                                        if not (np.isnan(crank_angle) or np.isnan(data_value) or 
-                                               np.isinf(crank_angle) or np.isinf(data_value)):
-                                            
-                                            db_client.execute(
-                                                "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                                (st.session_state.active_session_id, selected_cylinder_name, curve_name, crank_angle, data_value, curve_type)
-                                            )
-                                            stored_count += 1
-                                    except (ValueError, TypeError) as e:
-                                        # Skip invalid data points
-                                        continue
-                        
-                        print(f"DEBUG: Waveform data storage complete - stored {stored_count} sample points")
-                    else:
-                        print("DEBUG: Skipping waveform storage - invalid data or no curves")
-                        
-                except Exception as e:
-                    print(f"DEBUG: Waveform storage error: {e}")
-                    # Don't show error to user unless it's critical
-                    pass
-                
+                    analysis_ids[item['name']] = analysis_id
+
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
                 
@@ -3003,69 +2895,6 @@ else:
 # Historical Trend Analysis
 st.markdown("---")
 st.header("📈 Historical Trend Analysis")
-
-# Add cylinder-specific trending section
-col1, col2 = st.columns([1, 2])
-
-with col1:
-    st.subheader("Cylinder Trending")
-    
-    # Get available machines for selection
-    rs = db_client.execute("SELECT DISTINCT machine_id FROM sessions ORDER BY machine_id ASC")
-    machine_options = ["All Machines"] + [row[0] for row in rs.rows]
-    selected_machine = st.selectbox("Select Machine:", machine_options, key="trending_machine")
-    
-    # Get available cylinders based on selected machine
-    if selected_machine != "All Machines":
-        rs = db_client.execute("""
-            SELECT DISTINCT a.cylinder_name 
-            FROM analyses a 
-            JOIN sessions s ON a.session_id = s.id 
-            WHERE s.machine_id = ? 
-            ORDER BY a.cylinder_name ASC
-        """, (selected_machine,))
-    else:
-        rs = db_client.execute("SELECT DISTINCT cylinder_name FROM analyses ORDER BY cylinder_name ASC")
-    
-    # Get available cylinders - use current discovered config if available, otherwise use database
-    cylinder_options = ["All Cylinders"]
-    
-    if st.session_state.analysis_results and 'discovered_config' in st.session_state.analysis_results:
-        # Use current session's discovered cylinders (this shows all 5 cylinders)
-        discovered_config = st.session_state.analysis_results['discovered_config']
-        current_cylinders = discovered_config.get("cylinders", [])
-        current_cylinder_names = [c.get("cylinder_name") for c in current_cylinders]
-        
-        if selected_machine == "All Machines" or selected_machine == st.session_state.analysis_results.get('machine_id'):
-            cylinder_options.extend(current_cylinder_names)
-    
-    # Add any historical cylinders that aren't already in the list
-    for row in rs.rows:
-        if row[0] not in cylinder_options:
-            cylinder_options.append(row[0])
-    
-    selected_cylinder = st.selectbox("Select Cylinder:", cylinder_options, key="trending_cylinder")
-    
-    # Days back selection
-    days_back = st.selectbox("Time Period:", [7, 14, 30, 60, 90], index=2, key="trending_days")
-
-with col2:
-    st.subheader("Trend Chart")
-    
-    # Test the new function with a simple display
-    machine_filter = None if selected_machine == "All Machines" else selected_machine
-    cylinder_filter = None if selected_cylinder == "All Cylinders" else selected_cylinder
-    
-    trend_data = get_cylinder_historical_data(db_client, machine_filter, cylinder_filter, days_back)
-    
-    if not trend_data.empty:
-        st.success(f"Found {len(trend_data)} data points for trending analysis")
-        st.dataframe(trend_data.head(), use_container_width=True)
-    else:
-        st.info("No historical data found for the selected criteria")
-
-# Keep the original machine-level trending
-st.subheader("Machine-Level Overview")
 display_historical_analysis(db_client)
 
 # Display All Saved Labels at the bottom
