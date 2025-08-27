@@ -2937,8 +2937,56 @@ else:
     st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
 
 # Historical Trend Analysis
+# Historical Trend Analysis
 st.markdown("---")
 st.header("📈 Historical Trend Analysis")
+
+# Add cylinder-specific trending section
+col1, col2 = st.columns([1, 2])
+
+with col1:
+    st.subheader("Cylinder Trending")
+    
+    # Get available machines for selection
+    rs = db_client.execute("SELECT DISTINCT machine_id FROM sessions ORDER BY machine_id ASC")
+    machine_options = ["All Machines"] + [row[0] for row in rs.rows]
+    selected_machine = st.selectbox("Select Machine:", machine_options, key="trending_machine")
+    
+    # Get available cylinders based on selected machine
+    if selected_machine != "All Machines":
+        rs = db_client.execute("""
+            SELECT DISTINCT a.cylinder_name 
+            FROM analyses a 
+            JOIN sessions s ON a.session_id = s.id 
+            WHERE s.machine_id = ? 
+            ORDER BY a.cylinder_name ASC
+        """, (selected_machine,))
+    else:
+        rs = db_client.execute("SELECT DISTINCT cylinder_name FROM analyses ORDER BY cylinder_name ASC")
+    
+    cylinder_options = ["All Cylinders"] + [row[0] for row in rs.rows]
+    selected_cylinder = st.selectbox("Select Cylinder:", cylinder_options, key="trending_cylinder")
+    
+    # Days back selection
+    days_back = st.selectbox("Time Period:", [7, 14, 30, 60, 90], index=2, key="trending_days")
+
+with col2:
+    st.subheader("Trend Chart")
+    
+    # Test the new function with a simple display
+    machine_filter = None if selected_machine == "All Machines" else selected_machine
+    cylinder_filter = None if selected_cylinder == "All Cylinders" else selected_cylinder
+    
+    trend_data = get_cylinder_historical_data(db_client, machine_filter, cylinder_filter, days_back)
+    
+    if not trend_data.empty:
+        st.success(f"Found {len(trend_data)} data points for trending analysis")
+        st.dataframe(trend_data.head(), use_container_width=True)
+    else:
+        st.info("No historical data found for the selected criteria")
+
+# Keep the original machine-level trending
+st.subheader("Machine-Level Overview")
 display_historical_analysis(db_client)
 
 # Display All Saved Labels at the bottom
