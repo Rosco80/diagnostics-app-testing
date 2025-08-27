@@ -747,6 +747,50 @@ def display_historical_analysis(db_client):
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
 
+def get_cylinder_historical_data(db_client, machine_id=None, cylinder_name=None, days_back=30):
+    """
+    Query historical data for a specific cylinder over time.
+    Returns data suitable for trending analysis.
+    """
+    query = """
+        SELECT 
+            s.timestamp,
+            s.machine_id,
+            a.cylinder_name,
+            SUM(a.anomaly_count) as total_anomalies,
+            COUNT(DISTINCT a.curve_name) as curves_analyzed
+        FROM analyses a
+        JOIN sessions s ON a.session_id = s.id
+        WHERE s.timestamp >= datetime('now', '-{} days')
+    """.format(days_back)
+    
+    params = []
+    
+    if machine_id:
+        query += " AND s.machine_id = ?"
+        params.append(machine_id)
+    
+    if cylinder_name:
+        query += " AND a.cylinder_name = ?"
+        params.append(cylinder_name)
+    
+    query += """
+        GROUP BY s.timestamp, s.machine_id, a.cylinder_name
+        ORDER BY s.timestamp ASC
+    """
+    
+    try:
+        rs = db_client.execute(query, tuple(params))
+        if rs.rows:
+            return pd.DataFrame(rs.rows, columns=[
+                'timestamp', 'machine_id', 'cylinder_name', 
+                'total_anomalies', 'curves_analyzed'
+            ])
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Database query error: {e}")
+        return pd.DataFrame()
+
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
     Applies Isolation Forest to detect anomalies and calculate their scores.
