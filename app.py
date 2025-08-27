@@ -848,6 +848,17 @@ def get_last_row_id(_client):
     rs = _client.execute("SELECT last_insert_rowid()")
     return rs.rows[0][0] if rs.rows else None
 
+def determine_curve_type(curve_name):
+    """Determine the type of curve based on its name."""
+    name_upper = curve_name.upper()
+    if 'PRESSURE' in name_upper or 'PT' in name_upper:
+        return 'pressure'
+    elif 'VIBRATION' in name_upper:
+        return 'vibration'
+    elif 'ULTRASONIC' in name_upper:
+        return 'ultrasonic'
+    return 'other'
+
 def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
     try:
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
@@ -2818,33 +2829,65 @@ if validated_files:
                         analysis_id = get_last_row_id(db_client)
                     analysis_ids[item['name']] = analysis_id            
               
-                # Store waveform data for trending analysis (fixed with proper parameter binding)
+                # Store waveform data for trending analysis (optimized batch version)
                 print("DEBUG: Storing waveform data...")
-
-                for item in temp_report_data:
-                    curve_name = item['curve_name']
-                    if curve_name in df.columns:
-                        # Determine curve type
-                        if 'PRESSURE' in curve_name.upper() or 'PT' in curve_name.upper():
-                            curve_type = 'pressure'
-                        elif 'VIBRATION' in curve_name.upper():
-                            curve_type = 'vibration'
-                        elif 'ULTRASONIC' in curve_name.upper():
-                            curve_type = 'ultrasonic'
+                
+                try:
+                    # Validate data before storing
+                    if not df.empty and 'Crank Angle' in df.columns:
+                        # Remove NaN/infinite values for clean data
+                        df_clean = df.dropna()
+                        
+                        if not df_clean.empty:
+                            # Build batch data for all curves at once
+                            batch_data = []
+                            total_points = 0
+                            
+                            for item in temp_report_data:
+                                curve_name = item['curve_name']
+                                if curve_name in df_clean.columns:
+                                    curve_type = determine_curve_type(curve_name)
+                                    
+                                    # Use vectorized operations instead of iterrows()
+                                    crank_angles = df_clean['Crank Angle'].astype(float)
+                                    data_values = df_clean[curve_name].astype(float)
+                                    
+                                    # Filter out any remaining invalid values
+                                    valid_mask = ~(np.isnan(crank_angles) | np.isnan(data_values) | 
+                                                 np.isinf(crank_angles) | np.isinf(data_values))
+                                    
+                                    valid_crank = crank_angles[valid_mask]
+                                    valid_data = data_values[valid_mask]
+                                    
+                                    # Add to batch data
+                                    for crank_angle, data_value in zip(valid_crank, valid_data):
+                                        batch_data.append((
+                                            st.session_state.active_session_id,
+                                            selected_cylinder_name,
+                                            curve_name,
+                                            float(crank_angle),
+                                            float(data_value),
+                                            curve_type
+                                        ))
+                                        total_points += 1
+                            
+                            # Execute batch insert for much better performance
+                            if batch_data:
+                                db_client.executemany(
+                                    "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                    batch_data
+                                )
+                                print(f"DEBUG: Waveform data storage complete - stored {total_points} data points across {len(temp_report_data)} curves")
+                            else:
+                                print("DEBUG: No valid waveform data to store")
                         else:
-                            curve_type = 'other'
-        
-                        # Store each data point with proper parameter binding
-                        for index, row in df.iterrows():
-                            crank_angle = float(row['Crank Angle'])
-                            data_value = float(row[curve_name])
-            
-                            db_client.execute(
-                                "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                (st.session_state.active_session_id, selected_cylinder_name, curve_name, crank_angle, data_value, curve_type)
-                            )
-
-                print("DEBUG: Waveform data storage complete")
+                            st.warning("No valid data points to store after cleaning")
+                    else:
+                        st.error("Invalid data for waveform storage")
+                        
+                except Exception as e:
+                    st.error(f"Waveform storage failed: {e}")
+                    print(f"DEBUG: Waveform storage error: {e}")
                 
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
