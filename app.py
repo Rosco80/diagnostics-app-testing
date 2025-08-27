@@ -2871,12 +2871,18 @@ if validated_files:
                                         ))
                                         total_points += 1
                             
-                            # Execute batch insert for much better performance
+                            # Execute optimized inserts with parameterized queries
                             if batch_data:
-                                db_client.executemany(
-                                    "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                    batch_data
-                                )
+                                # Process data in chunks to balance performance and memory
+                                chunk_size = 1000  # Process 1000 records at a time
+                                for i in range(0, len(batch_data), chunk_size):
+                                    chunk = batch_data[i:i+chunk_size]
+                                    for data_row in chunk:
+                                        session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type = data_row
+                                        db_client.execute(
+                                            "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                            (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type)
+                                        )
                                 print(f"DEBUG: Waveform data storage complete - stored {total_points} data points across {len(temp_report_data)} curves")
                             else:
                                 print("DEBUG: No valid waveform data to store")
