@@ -2824,38 +2824,32 @@ if validated_files:
                 batch_statements = []
 
                 for item in temp_report_data:
-                curve_name = item['curve_name']
-                if curve_name in df.columns:
-                # Determine curve type
-        if 'PRESSURE' in curve_name.upper() or 'PT' in curve_name.upper():
-            curve_type = 'pressure'
-        elif 'VIBRATION' in curve_name.upper():
-            curve_type = 'vibration'
-        elif 'ULTRASONIC' in curve_name.upper():
-            curve_type = 'ultrasonic'
-        else:
-            curve_type = 'other'
-        
-        # Prepare batch statements for this curve
-        for index, row in df.iterrows():
-            crank_angle = float(row['Crank Angle'])
-            data_value = float(row[curve_name])
-            
-            batch_statements.append(
-                f"INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES ({st.session_state.active_session_id}, '{selected_cylinder_name}', '{curve_name}', {crank_angle}, {data_value}, '{curve_type}')"
-            )
+                    curve_name = item['curve_name']
+                    if curve_name in df.columns:
+                        # Determine curve type
+                        if 'PRESSURE' in curve_name.upper() or 'PT' in curve_name.upper():
+                            curve_type = 'pressure'
+                        elif 'VIBRATION' in curve_name.upper():
+                            curve_type = 'vibration'
+                        elif 'ULTRASONIC' in curve_name.upper():
+                            curve_type = 'ultrasonic'
+                        else:
+                            curve_type = 'other'
+                        
+                        # Prepare batch statements for this curve
+                        for index, row in df.iterrows():
+                            crank_angle = float(row['Crank Angle'])
+                            data_value = float(row[curve_name])
+                            
+                            batch_statements.append(
+                                f"INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES ({st.session_state.active_session_id}, '{selected_cylinder_name}', '{curve_name}', {crank_angle}, {data_value}, '{curve_type}')"
+                            )
 
-# Execute all statements in one batch for much better performance
-if batch_statements:
-    db_client.batch(batch_statements)
+                # Execute all statements in one batch for much better performance
+                if batch_statements:
+                    db_client.batch(batch_statements)
 
-print(f"DEBUG: Waveform data storage complete - stored {len(batch_statements)} data points")
-                    
-                  
-                
-                
-            
-                 
+                print(f"DEBUG: Waveform data storage complete - stored {len(batch_statements)} data points")
                 
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
