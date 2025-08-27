@@ -2937,7 +2937,6 @@ else:
     st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
 
 # Historical Trend Analysis
-# Historical Trend Analysis
 st.markdown("---")
 st.header("📈 Historical Trend Analysis")
 
@@ -2964,7 +2963,34 @@ with col1:
     else:
         rs = db_client.execute("SELECT DISTINCT cylinder_name FROM analyses ORDER BY cylinder_name ASC")
     
-    cylinder_options = ["All Cylinders"] + [row[0] for row in rs.rows]
+    # Get available cylinders - use current discovered config if available, otherwise use database
+cylinder_options = ["All Cylinders"]
+
+if st.session_state.analysis_results and 'discovered_config' in st.session_state.analysis_results:
+    # Use current session's discovered cylinders (this shows all 5 cylinders)
+    discovered_config = st.session_state.analysis_results['discovered_config']
+    current_cylinders = discovered_config.get("cylinders", [])
+    current_cylinder_names = [c.get("cylinder_name") for c in current_cylinders]
+    
+    if selected_machine == "All Machines" or selected_machine == st.session_state.analysis_results.get('machine_id'):
+        cylinder_options.extend(current_cylinder_names)
+
+# Also add any historical cylinders from database
+if selected_machine != "All Machines":
+    rs = db_client.execute("""
+        SELECT DISTINCT a.cylinder_name 
+        FROM analyses a 
+        JOIN sessions s ON a.session_id = s.id 
+        WHERE s.machine_id = ? 
+        ORDER BY a.cylinder_name ASC
+    """, (selected_machine,))
+else:
+    rs = db_client.execute("SELECT DISTINCT cylinder_name FROM analyses ORDER BY cylinder_name ASC")
+
+# Add any historical cylinders that aren't already in the list
+for row in rs.rows:
+    if row[0] not in cylinder_options:
+        cylinder_options.append(row[0])
     selected_cylinder = st.selectbox("Select Cylinder:", cylinder_options, key="trending_cylinder")
     
     # Days back selection
