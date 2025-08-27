@@ -2797,7 +2797,14 @@ if validated_files:
                 
                 # Display the enhanced plot
                 st.plotly_chart(fig, use_container_width=True)
-                
+
+                # DEBUG: Check what data we have available
+                print("DEBUG: Checking available data...")
+                print(f"DEBUG: df columns: {list(df.columns)}")
+                print(f"DEBUG: df shape: {df.shape}")
+                print(f"DEBUG: temp_report_data: {temp_report_data}")
+                print(f"DEBUG: selected_cylinder_name: {selected_cylinder_name}")
+
                 # Create or update analysis records in DB
                 analysis_ids = {}
                 for item in temp_report_data:
