@@ -2817,7 +2817,31 @@ if validated_files:
                         db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
                         analysis_id = get_last_row_id(db_client)
                     analysis_ids[item['name']] = analysis_id
+                print("DEBUG: Storing waveform data...")
+                for item in temp_report_data:
+                    curve_name = item['curve_name']
+                    if curve_name in df.columns:
+                        # Determine curve type
+                        if 'PRESSURE' in curve_name.upper() or 'PT' in curve_name.upper():
+                            curve_type = 'pressure'
+                        elif 'VIBRATION' in curve_name.upper():
+                            curve_type = 'vibration'
+                        elif 'ULTRASONIC' in curve_name.upper():
+                            curve_type = 'ultrasonic'
+                        else:
+                            curve_type = 'other'
+        
+                        # Store each data point
+                        for index, row in df.iterrows():
+                            crank_angle = row['Crank Angle']
+                            data_value = row[curve_name]
+            
+                            db_client.execute(
+                                "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                (st.session_state.active_session_id, selected_cylinder_name, curve_name, float(crank_angle), float(data_value), curve_type)
+                            )
 
+                print("DEBUG: Waveform data storage complete")
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
                 
