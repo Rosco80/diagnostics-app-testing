@@ -2816,12 +2816,10 @@ if validated_files:
                     else:
                         db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
                         analysis_id = get_last_row_id(db_client)
-                    analysis_ids[item['name']] = analysis_id
-                
-                
-                # Store waveform data for trending analysis (optimized batch version)
+                    analysis_ids[item['name']] = analysis_id            
+              
+                # Store waveform data for trending analysis (fixed with proper parameter binding)
                 print("DEBUG: Storing waveform data...")
-                batch_statements = []
 
                 for item in temp_report_data:
                     curve_name = item['curve_name']
@@ -2835,21 +2833,18 @@ if validated_files:
                             curve_type = 'ultrasonic'
                         else:
                             curve_type = 'other'
-                        
-                        # Prepare batch statements for this curve
+        
+                        # Store each data point with proper parameter binding
                         for index, row in df.iterrows():
                             crank_angle = float(row['Crank Angle'])
                             data_value = float(row[curve_name])
-                            
-                            batch_statements.append(
-                                f"INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES ({st.session_state.active_session_id}, '{selected_cylinder_name}', '{curve_name}', {crank_angle}, {data_value}, '{curve_type}')"
+            
+                            db_client.execute(
+                                "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                (st.session_state.active_session_id, selected_cylinder_name, curve_name, crank_angle, data_value, curve_type)
                             )
 
-                # Execute all statements in one batch for much better performance
-                if batch_statements:
-                    db_client.batch(batch_statements)
-
-                print(f"DEBUG: Waveform data storage complete - stored {len(batch_statements)} data points")
+                print("DEBUG: Waveform data storage complete")
                 
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
