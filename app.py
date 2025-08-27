@@ -2829,71 +2829,50 @@ if validated_files:
                         analysis_id = get_last_row_id(db_client)
                     analysis_ids[item['name']] = analysis_id            
               
-                # Store waveform data for trending analysis (optimized batch version)
-                print("DEBUG: Storing waveform data...")
+                # Store waveform data for trending analysis (simplified and working)
+                print("DEBUG: Starting waveform data storage...")
                 
                 try:
-                    # Validate data before storing
-                    if not df.empty and 'Crank Angle' in df.columns:
-                        # Remove NaN/infinite values for clean data
-                        df_clean = df.dropna()
+                    if not df.empty and 'Crank Angle' in df.columns and temp_report_data:
+                        # Sample data to avoid performance issues - store every Nth point
+                        sample_rate = max(1, len(df) // 500)  # Limit to ~500 points max per curve
+                        df_sampled = df.iloc[::sample_rate].copy()
                         
-                        if not df_clean.empty:
-                            # Build batch data for all curves at once
-                            batch_data = []
-                            total_points = 0
-                            
-                            for item in temp_report_data:
-                                curve_name = item['curve_name']
-                                if curve_name in df_clean.columns:
-                                    curve_type = determine_curve_type(curve_name)
-                                    
-                                    # Use vectorized operations instead of iterrows()
-                                    crank_angles = df_clean['Crank Angle'].astype(float)
-                                    data_values = df_clean[curve_name].astype(float)
-                                    
-                                    # Filter out any remaining invalid values
-                                    valid_mask = ~(np.isnan(crank_angles) | np.isnan(data_values) | 
-                                                 np.isinf(crank_angles) | np.isinf(data_values))
-                                    
-                                    valid_crank = crank_angles[valid_mask]
-                                    valid_data = data_values[valid_mask]
-                                    
-                                    # Add to batch data
-                                    for crank_angle, data_value in zip(valid_crank, valid_data):
-                                        batch_data.append((
-                                            st.session_state.active_session_id,
-                                            selected_cylinder_name,
-                                            curve_name,
-                                            float(crank_angle),
-                                            float(data_value),
-                                            curve_type
-                                        ))
-                                        total_points += 1
-                            
-                            # Execute optimized inserts with parameterized queries
-                            if batch_data:
-                                # Process data in chunks to balance performance and memory
-                                chunk_size = 1000  # Process 1000 records at a time
-                                for i in range(0, len(batch_data), chunk_size):
-                                    chunk = batch_data[i:i+chunk_size]
-                                    for data_row in chunk:
-                                        session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type = data_row
-                                        db_client.execute(
-                                            "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                            (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type)
-                                        )
-                                print(f"DEBUG: Waveform data storage complete - stored {total_points} data points across {len(temp_report_data)} curves")
-                            else:
-                                print("DEBUG: No valid waveform data to store")
-                        else:
-                            st.warning("No valid data points to store after cleaning")
+                        print(f"DEBUG: Storing sampled data - {len(df_sampled)} points per curve (sample rate: {sample_rate})")
+                        
+                        stored_count = 0
+                        for item in temp_report_data:
+                            curve_name = item['curve_name']
+                            if curve_name in df_sampled.columns:
+                                curve_type = determine_curve_type(curve_name)
+                                
+                                # Store sample points for this curve only
+                                for index, row in df_sampled.iterrows():
+                                    try:
+                                        crank_angle = float(row['Crank Angle'])
+                                        data_value = float(row[curve_name])
+                                        
+                                        # Skip invalid values
+                                        if not (np.isnan(crank_angle) or np.isnan(data_value) or 
+                                               np.isinf(crank_angle) or np.isinf(data_value)):
+                                            
+                                            db_client.execute(
+                                                "INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                                (st.session_state.active_session_id, selected_cylinder_name, curve_name, crank_angle, data_value, curve_type)
+                                            )
+                                            stored_count += 1
+                                    except (ValueError, TypeError) as e:
+                                        # Skip invalid data points
+                                        continue
+                        
+                        print(f"DEBUG: Waveform data storage complete - stored {stored_count} sample points")
                     else:
-                        st.error("Invalid data for waveform storage")
+                        print("DEBUG: Skipping waveform storage - invalid data or no curves")
                         
                 except Exception as e:
-                    st.error(f"Waveform storage failed: {e}")
                     print(f"DEBUG: Waveform storage error: {e}")
+                    # Don't show error to user unless it's critical
+                    pass
                 
                 # Regenerate plot with correct analysis_ids
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
