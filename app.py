@@ -35,6 +35,8 @@ if 'last_settings_update' not in st.session_state:
     st.session_state.last_settings_update = datetime.datetime.now()
 if 'settings_changed' not in st.session_state: 
     st.session_state.settings_changed = False
+if 'valve_event_tags' not in st.session_state:
+    st.session_state.valve_event_tags = {}
 
 # --- Global Configuration & Constants ---
 FAULT_LABELS = [
@@ -828,6 +830,42 @@ def load_all_curves_data(_curves_xml_content):
     except Exception as e:
         st.error(f"Failed to load curves data: {e}")
         return None, None
+
+def save_valve_event_to_db(db_client, analysis_id, crank_angle, event_type="Manual Tag"):
+    """Save valve event to database"""
+    db_client.execute(
+        "INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)",
+        (analysis_id, event_type, crank_angle)
+    )
+
+def render_interactive_plot_with_event(df, x_col, y_col, label, analysis_id=None, existing_events=None):
+    """Render interactive plot with click event handling for crank-angle tagging"""
+    fig = px.line(df, x=x_col, y=y_col, title=f"{label} Curve", markers=True)
+    fig.update_layout(hovermode='x unified')
+
+    # Show previous events (if any)
+    if existing_events:
+        for angle in existing_events:
+            fig.add_vline(x=angle, line_dash="dash", line_color="red", annotation_text=f"Tagged: {angle}°")
+
+    st.markdown(f"### 🔍 Click the curve to tag crank angle positions")
+    
+    # Create unique key for this plot
+    plot_key = f"{label.replace(' ', '_')}_plot"
+    
+    selected_points = plotly_events(fig, click_event=True, key=plot_key)
+
+    if selected_points:
+        clicked_x = selected_points[0].get("x")
+        if clicked_x is not None:
+            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
+            
+            # Store in session state with plot-specific key
+            if plot_key not in st.session_state.valve_event_tags:
+                st.session_state.valve_event_tags[plot_key] = []
+            st.session_state.valve_event_tags[plot_key].append(clicked_x)
+
+    return st.session_state.valve_event_tags.get(plot_key, [])
 
 def extract_rpm_from_source(source_xml_content):
     """
@@ -2085,7 +2123,7 @@ def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_aler
             pass
         st.error(f"🔥 {alert}")
 
-def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None, suggestions=None, health_score=None, critical_alerts=None):
+def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, health_report_df, chart_fig=None, suggestions=None, health_score=None, critical_alerts=None, tagged_events=None):
     """Enhanced PDF report generator with executive summary"""
     if not REPORTLAB_AVAILABLE:
         st.warning("ReportLab not installed. PDF generation unavailable.")
@@ -2185,6 +2223,13 @@ def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, he
             story.append(Spacer(1, 15))
         except Exception as e:
             story.append(Paragraph(f"Chart could not be generated. Error: {str(e)}", styles['Normal']))
+    
+    # Tagged Events Section
+    if tagged_events:
+        story.append(Paragraph("🔧 Crank-Angle Tagged Events", heading_style))
+        for angle in tagged_events:
+            story.append(Paragraph(f"• Tagged at: {angle:.2f}°", styles['Normal']))
+        story.append(Spacer(1, 15))
     
     doc.build(story)
     buffer.seek(0)
@@ -2613,12 +2658,24 @@ with st.sidebar:
         key='view_mode'
     )
     show_pv_overlay = False
+    interactive_tagging = False
     if view_mode == "Crank-angle":
         show_pv_overlay = st.checkbox(
             "🔄 Show P-V Overlay",
             value=False,
             key='pv_overlay',
             help="Show P-V diagram as overlay on crank-angle view"
+        )
+        
+        # Debug: This should appear
+        st.write("DEBUG: This text should appear")
+        
+        # Interactive Tagging Mode
+        interactive_tagging = st.checkbox(
+            "🏷️ Interactive Tagging Mode",
+            value=False,
+            key='interactive_tagging',
+            help="Click on curves to tag crank-angle positions for anomaly marking"
         )
 
     # Add pressure options here
@@ -2847,8 +2904,68 @@ if validated_files:
                 if view_mode == "Crank-angle":  # Only apply to crank-angle view
                     fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
                 
-                # Display the enhanced plot
-                st.plotly_chart(fig, use_container_width=True)
+                # Display the enhanced plot - with interactive tagging if enabled
+                if interactive_tagging and view_mode == "Crank-angle":
+                    st.markdown("### 🔍 Interactive Tagging Mode")
+                    st.info("Click on the curves to tag crank-angle positions where anomalies are suspected.")
+                    
+                    # Add vertical lines for existing tags
+                    plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
+                    existing_tags = st.session_state.valve_event_tags.get(plot_key, [])
+                    for angle in existing_tags:
+                        fig.add_vline(x=angle, line_dash="dash", line_color="red", 
+                                     annotation_text=f"Tagged: {angle:.1f}°")
+                    
+                    # Use plotly_events for interactive clicking
+                    selected_points = plotly_events(fig, click_event=True, key=plot_key)
+                    
+                    if selected_points:
+                        clicked_x = selected_points[0].get("x")
+                        if clicked_x is not None:
+                            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
+                            
+                            # Store in session state
+                            if plot_key not in st.session_state.valve_event_tags:
+                                st.session_state.valve_event_tags[plot_key] = []
+                            st.session_state.valve_event_tags[plot_key].append(clicked_x)
+                            st.rerun()
+                    
+                    # Show current tags and save options
+                    if existing_tags:
+                        st.markdown("#### 🏷️ Current Tags")
+                        tags_col1, tags_col2, tags_col3 = st.columns([2, 1, 1])
+                        with tags_col1:
+                            for i, tag in enumerate(existing_tags):
+                                st.write(f"• Tag {i+1}: {tag:.2f}°")
+                        with tags_col2:
+                            if st.button("💾 Save Tags", key="save_tags"):
+                                # Save tags to database for all curves in this cylinder
+                                saved_count = 0
+                                for item in temp_report_data:
+                                    # Get or create analysis ID for this curve
+                                    rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", 
+                                                         (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                                    existing_id_row = rs.rows[0] if rs.rows else None
+                                    if existing_id_row:
+                                        analysis_id = existing_id_row[0]
+                                    else:
+                                        db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", 
+                                                        (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
+                                        analysis_id = get_last_row_id(db_client)
+                                    
+                                    # Clear existing tags for this analysis and add new ones
+                                    db_client.execute("DELETE FROM valve_events WHERE analysis_id = ? AND event_type = ?", (analysis_id, 'Manual Tag'))
+                                    for tag in existing_tags:
+                                        save_valve_event_to_db(db_client, analysis_id, tag, 'Manual Tag')
+                                        saved_count += 1
+                                
+                                st.success(f"✅ Saved {saved_count} tags to database!")
+                        with tags_col3:
+                            if st.button("🗑️ Clear Tags", key="clear_tags"):
+                                st.session_state.valve_event_tags[plot_key] = []
+                                st.rerun()
+                else:
+                    st.plotly_chart(fig, use_container_width=True)
                 
                 # Create or update analysis records in DB
                 analysis_ids = {}
@@ -2943,7 +3060,11 @@ if validated_files:
                 # Export and Cylinder Details
                                     
                 if st.button("🔄 Generate Report for this Cylinder", type="primary", key='gen_report'):
-                    pdf_buffer = generate_pdf_report(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts)
+                    # Get tagged events for this cylinder
+                    plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
+                    current_tagged_events = st.session_state.valve_event_tags.get(plot_key, [])
+                    
+                    pdf_buffer = generate_pdf_report_enhanced(machine_id, rpm, selected_cylinder_name, report_data, health_report_df, fig, suggestions, health_score, critical_alerts, current_tagged_events)
                     if pdf_buffer:
                         st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
                         
