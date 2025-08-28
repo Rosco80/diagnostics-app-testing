@@ -1952,15 +1952,15 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     events = plotly_events(fig, click_event=True, hover_event=False, select_event=False, key=f"ca_plot_{cylinder_config.get('cylinder_name','')}_{view_mode}")
 
     if events:
-    clicked_x = None  # ✅ Fix: initialize before the loop
-    for ev in events:
-        if 'x' in ev:
-            clicked_x = ev['x']
-            break
+        clicked_x = None  # ✅ Fix: initialize before the loop
+        for ev in events:
+            if 'x' in ev:
+                clicked_x = ev['x']
+                break
 
-    if clicked_x is not None:
-        st.success(f"✅ Crank-angle tagged at: {float(clicked_x):.2f}°")
-        st.session_state.setdefault("valve_event_tags", []).append(float(clicked_x))
+        if clicked_x is not None:
+            st.success(f"✅ Crank-angle tagged at: {float(clicked_x):.2f}°")
+            st.session_state.setdefault("valve_event_tags", []).append(float(clicked_x))
 
 
     return fig, report_data
