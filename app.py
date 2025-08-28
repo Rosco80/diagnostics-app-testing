@@ -16,6 +16,9 @@ import time
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
+from sklearn.ensemble import IsolationForest
+import plotly.express as px
+import math
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -354,7 +357,6 @@ render_professional_header()
 if 'active_session_id' not in st.session_state: st.session_state.active_session_id = None
 if 'file_uploader_key' not in st.session_state: st.session_state.file_uploader_key = 0
 
-st.title("⚙️ AI-Powered Machine Diagnostics Analyzer")
 st.markdown("Upload your machine's XML data files. The configuration will be discovered automatically.")
 
 with st.sidebar:
