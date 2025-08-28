@@ -2906,40 +2906,79 @@ if validated_files:
                     st.markdown("### 🔍 Interactive Tagging Mode")
                     st.info("Click on the curves to tag crank-angle positions where anomalies are suspected.")
                     
-                    # Add vertical lines for existing tags
+                    # Create a clean, simplified figure for interactive clicking
                     plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
                     existing_tags = st.session_state.valve_event_tags.get(plot_key, [])
+                    
+                    # Create simple figure with just main pressure and vibration curves
+                    clean_fig = go.Figure()
+                    
+                    # Add pressure curve (main one)
+                    pressure_curve = selected_cylinder_config.get('pressure_curve')
+                    if pressure_curve and pressure_curve in df.columns:
+                        clean_fig.add_trace(go.Scatter(
+                            x=df['Crank Angle'],
+                            y=df[pressure_curve],
+                            mode='lines',
+                            name='Pressure',
+                            line=dict(color='black', width=2),
+                            hovertemplate="<b>Angle:</b> %{x:.1f}°<br><b>Pressure:</b> %{y:.1f} PSI<extra></extra>"
+                        ))
+                    
+                    # Add main valve vibration curves
+                    valve_curves = selected_cylinder_config.get('valve_vibration_curves', [])
+                    colors = ['blue', 'green', 'purple', 'orange']
+                    for i, valve_curve in enumerate(valve_curves[:4]):  # Limit to 4 curves for simplicity
+                        curve_name = valve_curve['curve']
+                        if curve_name in df.columns:
+                            clean_fig.add_trace(go.Scatter(
+                                x=df['Crank Angle'],
+                                y=df[curve_name],
+                                mode='lines',
+                                name=curve_name,
+                                line=dict(color=colors[i], width=1.5),
+                                yaxis='y2',
+                                hovertemplate=f"<b>Angle:</b> %{{x:.1f}}°<br><b>{curve_name}:</b> %{{y:.3f}}<extra></extra>"
+                            ))
+                    
+                    # Add existing tags
                     for angle in existing_tags:
-                        fig.add_vline(x=angle, line_dash="dash", line_color="red", 
-                                     annotation_text=f"Tagged: {angle:.1f}°")
+                        clean_fig.add_vline(x=angle, line_dash="dash", line_color="red", line_width=2,
+                                          annotation_text=f"Tag: {angle:.1f}°", annotation_position="top")
                     
-                    # Display chart normally first, then use plotly_events to capture clicks
-                    st.plotly_chart(fig, use_container_width=True)
+                    # Configure layout for dual y-axis but keep it simple
+                    clean_fig.update_layout(
+                        title=f"Interactive Tagging - {selected_cylinder_name}",
+                        xaxis_title="Crank Angle (degrees)",
+                        yaxis=dict(title="Pressure (PSI)", side="left"),
+                        yaxis2=dict(title="Vibration", side="right", overlaying="y"),
+                        height=500,
+                        hovermode='x unified',
+                        showlegend=True
+                    )
                     
-                    # Create a simplified figure for click detection
-                    click_fig = fig
+                    # Use plotly_events with the clean figure
+                    selected_points = plotly_events(
+                        clean_fig, 
+                        click_event=True, 
+                        hover_event=False,
+                        select_event=False,
+                        key=plot_key
+                    )
                     
-                    # Use plotly_events on a separate container for click detection
-                    with st.container():
-                        st.markdown("**Click on the chart above to tag points, or use manual input below:**")
-                        
-                        # Manual input as backup
-                        col1, col2 = st.columns([2, 1])
-                        with col1:
-                            manual_angle = st.number_input(
-                                "Enter Crank Angle (degrees):",
-                                min_value=0.0,
-                                max_value=720.0,
-                                step=1.0,
-                                key=f"manual_angle_{plot_key}"
-                            )
-                        with col2:
-                            if st.button("Add Tag", key=f"add_tag_{plot_key}"):
-                                if plot_key not in st.session_state.valve_event_tags:
-                                    st.session_state.valve_event_tags[plot_key] = []
-                                st.session_state.valve_event_tags[plot_key].append(manual_angle)
-                                st.success(f"✅ Tagged at {manual_angle}°")
-                                st.rerun()
+                    # Check for click events
+                    if selected_points and len(selected_points) > 0:
+                        clicked_x = selected_points[0].get("x")
+                        if clicked_x is not None:
+                            if plot_key not in st.session_state.valve_event_tags:
+                                st.session_state.valve_event_tags[plot_key] = []
+                            st.session_state.valve_event_tags[plot_key].append(clicked_x)
+                            st.success(f"✅ Clicked and tagged at {clicked_x:.2f}°")
+                            st.rerun()
+                    
+                    # Show the original complex chart below for reference
+                    with st.expander("📊 View Full Detailed Chart", expanded=False):
+                        st.plotly_chart(fig, use_container_width=True)
                     
                     # Show current tags and save options
                     if existing_tags:
