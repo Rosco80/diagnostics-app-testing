@@ -19,7 +19,6 @@ import libsql_client
 from sklearn.ensemble import IsolationForest
 import plotly.express as px
 import math
-from streamlit_plotly_events import plotly_events
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -2901,84 +2900,99 @@ if validated_files:
                 if view_mode == "Crank-angle":  # Only apply to crank-angle view
                     fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
                 
-                # Display the enhanced plot - with interactive tagging if enabled
+                # Display the enhanced plot - with interactive tagging if enabled  
                 if interactive_tagging and view_mode == "Crank-angle":
                     st.markdown("### 🔍 Interactive Tagging Mode")
                     st.info("Click on the curves to tag crank-angle positions where anomalies are suspected.")
                     
-                    # Create a clean, simplified figure for interactive clicking
                     plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
                     existing_tags = st.session_state.valve_event_tags.get(plot_key, [])
                     
-                    # Create simple figure with just main pressure and vibration curves
-                    clean_fig = go.Figure()
-                    
-                    # Add pressure curve (main one)
-                    pressure_curve = selected_cylinder_config.get('pressure_curve')
-                    if pressure_curve and pressure_curve in df.columns:
-                        clean_fig.add_trace(go.Scatter(
-                            x=df['Crank Angle'],
-                            y=df[pressure_curve],
-                            mode='lines',
-                            name='Pressure',
-                            line=dict(color='black', width=2),
-                            hovertemplate="<b>Angle:</b> %{x:.1f}°<br><b>Pressure:</b> %{y:.1f} PSI<extra></extra>"
-                        ))
-                    
-                    # Add main valve vibration curves
-                    valve_curves = selected_cylinder_config.get('valve_vibration_curves', [])
-                    colors = ['blue', 'green', 'purple', 'orange']
-                    for i, valve_curve in enumerate(valve_curves[:4]):  # Limit to 4 curves for simplicity
-                        curve_name = valve_curve['curve']
-                        if curve_name in df.columns:
-                            clean_fig.add_trace(go.Scatter(
-                                x=df['Crank Angle'],
-                                y=df[curve_name],
-                                mode='lines',
-                                name=curve_name,
-                                line=dict(color=colors[i], width=1.5),
-                                yaxis='y2',
-                                hovertemplate=f"<b>Angle:</b> %{{x:.1f}}°<br><b>{curve_name}:</b> %{{y:.3f}}<extra></extra>"
-                            ))
-                    
-                    # Add existing tags
+                    # Add existing tags to the main figure
                     for angle in existing_tags:
-                        clean_fig.add_vline(x=angle, line_dash="dash", line_color="red", line_width=2,
-                                          annotation_text=f"Tag: {angle:.1f}°", annotation_position="top")
+                        fig.add_vline(x=angle, line_dash="dash", line_color="red", line_width=2,
+                                     annotation_text=f"Tagged: {angle:.1f}°", annotation_position="top")
                     
-                    # Configure layout for dual y-axis but keep it simple
-                    clean_fig.update_layout(
-                        title=f"Interactive Tagging - {selected_cylinder_name}",
-                        xaxis_title="Crank Angle (degrees)",
-                        yaxis=dict(title="Pressure (PSI)", side="left"),
-                        yaxis2=dict(title="Vibration", side="right", overlaying="y"),
-                        height=500,
-                        hovermode='x unified',
-                        showlegend=True
-                    )
-                    
-                    # Use plotly_events with the clean figure
-                    selected_points = plotly_events(
-                        clean_fig, 
-                        click_event=True, 
-                        hover_event=False,
-                        select_event=False,
-                        key=plot_key
-                    )
-                    
-                    # Check for click events
-                    if selected_points and len(selected_points) > 0:
-                        clicked_x = selected_points[0].get("x")
-                        if clicked_x is not None:
-                            if plot_key not in st.session_state.valve_event_tags:
-                                st.session_state.valve_event_tags[plot_key] = []
-                            st.session_state.valve_event_tags[plot_key].append(clicked_x)
-                            st.success(f"✅ Clicked and tagged at {clicked_x:.2f}°")
-                            st.rerun()
-                    
-                    # Show the original complex chart below for reference
-                    with st.expander("📊 View Full Detailed Chart", expanded=False):
+                    # OPTION 1: Try Streamlit native click detection
+                    try:
+                        # Test if Streamlit 1.30.0 supports on_click parameter
+                        clicked_data = st.plotly_chart(
+                            fig, 
+                            use_container_width=True,
+                            on_select="rerun",  # This might work in newer versions
+                            selection_mode="points",
+                            key=f"interactive_chart_{plot_key}"
+                        )
+                        
+                        # Check if we got click data
+                        if hasattr(clicked_data, 'selection') and clicked_data.selection:
+                            if clicked_data.selection.get('points'):
+                                for point in clicked_data.selection['points']:
+                                    clicked_x = point.get('x')
+                                    if clicked_x is not None:
+                                        if plot_key not in st.session_state.valve_event_tags:
+                                            st.session_state.valve_event_tags[plot_key] = []
+                                        st.session_state.valve_event_tags[plot_key].append(clicked_x)
+                                        st.success(f"✅ Tagged at {clicked_x:.2f}° using native Streamlit click!")
+                                        st.rerun()
+                        
+                        st.write("✅ **Option 1 (Native Streamlit)**: Chart displayed above - try clicking on data points!")
+                        
+                    except Exception as e:
+                        # Fallback if native click doesn't work
                         st.plotly_chart(fig, use_container_width=True)
+                        st.write(f"❌ **Option 1**: Native click not supported in this Streamlit version: {str(e)}")
+                        st.write("Let's try Option 6 (Altair) below...")
+                        
+                        # OPTION 6: Altair version as fallback
+                        st.markdown("---")
+                        st.markdown("### 🔄 **Option 6: Altair Interactive Version**")
+                        
+                        # Create Altair chart with same data
+                        import altair as alt
+                        
+                        try:
+                            # Prepare data for Altair
+                            chart_data = pd.DataFrame()
+                            chart_data['Crank Angle'] = df['Crank Angle']
+                            
+                            # Add pressure data
+                            pressure_curve = selected_cylinder_config.get('pressure_curve')
+                            if pressure_curve and pressure_curve in df.columns:
+                                chart_data['Pressure'] = df[pressure_curve]
+                                chart_data['Series'] = 'Pressure'
+                                chart_data['Value'] = df[pressure_curve]
+                                chart_data['Unit'] = 'PSI'
+                            
+                            # Create basic Altair chart
+                            click_selection = alt.selection_multi(fields=['Crank Angle'])
+                            
+                            altair_chart = alt.Chart(chart_data).add_selection(
+                                click_selection
+                            ).mark_line().encode(
+                                x=alt.X('Crank Angle:Q', title='Crank Angle (degrees)'),
+                                y=alt.Y('Value:Q', title='Value'),
+                                color=alt.Color('Series:N'),
+                                tooltip=['Crank Angle:Q', 'Value:Q', 'Series:N']
+                            ).properties(
+                                width=700,
+                                height=400,
+                                title=f"Interactive Tagging - {selected_cylinder_name}"
+                            )
+                            
+                            # Display Altair chart
+                            altair_result = st.altair_chart(altair_chart, use_container_width=True)
+                            
+                            st.write("✅ **Option 6 (Altair)**: Chart displayed above - try clicking!")
+                            
+                            # Check for Altair selections
+                            if altair_result and hasattr(altair_result, 'selection'):
+                                st.write("Altair selection data:", altair_result)
+                                
+                        except ImportError:
+                            st.error("❌ **Option 6**: Altair not installed. Install with: `pip install altair`")
+                        except Exception as e:
+                            st.error(f"❌ **Option 6**: Error creating Altair chart: {str(e)}")
                     
                     # Show current tags and save options
                     if existing_tags:
