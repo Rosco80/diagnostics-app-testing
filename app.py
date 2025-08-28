@@ -50,6 +50,31 @@ try:
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
+from streamlit_plotly_events import plotly_events
+
+def render_interactive_plot_with_event(df, x_col, y_col, label, existing_events=None):
+    fig = px.line(df, x=x_col, y=y_col, title=f"{label} Curve", markers=True)
+    fig.update_layout(hovermode='x unified')
+
+    # Show previous events (if any)
+    if existing_events:
+        for angle in existing_events:
+            fig.add_vline(x=angle, line_dash="dash", line_color="red", annotation_text=f"Tagged: {angle}°")
+
+    st.markdown(f"### 🔍 Click the curve to tag crank angle positions")
+    selected_points = plotly_events(fig, click_event=True, key=f"{label}_plot")
+
+    if selected_points:
+        clicked_x = selected_points[0].get("x")
+        if clicked_x is not None:
+            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
+            # Save to session
+            if "valve_event_tags" not in st.session_state:
+                st.session_state.valve_event_tags = []
+            st.session_state.valve_event_tags.append(clicked_x)
+
+    return st.session_state.get("valve_event_tags", [])
+    
 
 # --- Helper function for triggering reruns (REMOVED - causing issues) ---
 # def trigger_rerun():
