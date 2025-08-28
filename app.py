@@ -1675,16 +1675,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 x=0.5, y=0.5,
                 showarrow=False
             )
-        # Enable interactive valve tagging by clicking on curve
-        tagged_angles = render_interactive_plot_with_event(df, "Crank Angle", pressure_curve, "P-V / Crank Angle View")
-
-        # Optional: Show tagged points inline
-        if tagged_angles:
-            st.session_state.valve_event_tags = tagged_angles
-            st.markdown("### 🧩 Tagged Crank Angles")
-        for i, angle in enumerate(tagged_angles):
-            st.write(f"{i+1}. {angle:.2f}°")
-        
+              
         return fig, report_data
 
     # --- Crank-angle mode OR Dual view mode ---
@@ -1957,6 +1948,23 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     
         except Exception as e:
             st.warning(f"⚠️ P-V overlay failed: {str(e)}")
+    # Enable interactive valve tagging by clicking on curve
+    events = plotly_events(fig, click_event=True, hover_event=False, select_event=False, key=f"ca_plot_{cylinder_config.get('cylinder_name','')}_{view_mode}")
+
+    if events:
+        clicked_x = None
+    for ev in events:
+        if 'x' in ev:
+            clicked_x = ev['x']
+            break
+
+    if clicked_x is not None:
+        st.success(f"✅ Crank-angle tagged at: {float(clicked_x):.2f}°")
+        st.session_state.setdefault("valve_event_tags", []).append(float(clicked_x))
+
+    # Optional: show a small summary under the chart
+    if st.session_state.get("valve_event_tags"):
+        st.caption("**Tagged crank angles:** " + ", ".join(f"{a:.2f}°" for a in st.session_state["valve_event_tags"]))
 
     return fig, report_data
 
