@@ -837,34 +837,6 @@ def save_valve_event_to_db(db_client, analysis_id, crank_angle, event_type="Manu
         (analysis_id, event_type, crank_angle)
     )
 
-def render_interactive_plot_with_event(df, x_col, y_col, label, analysis_id=None, existing_events=None):
-    """Render interactive plot with click event handling for crank-angle tagging"""
-    fig = px.line(df, x=x_col, y=y_col, title=f"{label} Curve", markers=True)
-    fig.update_layout(hovermode='x unified')
-
-    # Show previous events (if any)
-    if existing_events:
-        for angle in existing_events:
-            fig.add_vline(x=angle, line_dash="dash", line_color="red", annotation_text=f"Tagged: {angle}°")
-
-    st.markdown(f"### 🔍 Click the curve to tag crank angle positions")
-    
-    # Create unique key for this plot
-    plot_key = f"{label.replace(' ', '_')}_plot"
-    
-    selected_points = plotly_events(fig, click_event=True, key=plot_key)
-
-    if selected_points:
-        clicked_x = selected_points[0].get("x")
-        if clicked_x is not None:
-            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
-            
-            # Store in session state with plot-specific key
-            if plot_key not in st.session_state.valve_event_tags:
-                st.session_state.valve_event_tags[plot_key] = []
-            st.session_state.valve_event_tags[plot_key].append(clicked_x)
-
-    return st.session_state.valve_event_tags.get(plot_key, [])
 
 def extract_rpm_from_source(source_xml_content):
     """
@@ -956,13 +928,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
         # Build configuration for each cylinder - FIXED LOGIC
         cylinders_config = []
         
-        # Debug: Print all curve names to see what we're working with
-        print("DEBUG: Available curve names:")
-        for name in sorted(all_curve_names):
-            print(f"  - {name}")
-        
         for i in range(1, num_cylinders + 1):
-            print(f"\nDEBUG: Processing Cylinder {i}")
             
             # FIXED: More robust pressure curve detection
             pressure_curve = None
@@ -982,9 +948,6 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             # Prefer Head End, fall back to Crank End
             pressure_curve = he_pressure or ce_pressure
             
-            print(f"DEBUG: Cylinder {i} - HE pressure: {he_pressure}")
-            print(f"DEBUG: Cylinder {i} - CE pressure: {ce_pressure}")
-            print(f"DEBUG: Cylinder {i} - Selected pressure: {pressure_curve}")
 
             # FIXED: Correct valve curve detection based on actual XML patterns
             valve_curves = []
@@ -1021,7 +984,6 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             if ce_suction:
                 valve_curves.append({"name": "CE Suction", "curve": ce_suction})
 
-            print(f"DEBUG: Cylinder {i} - Found valve curves: {[vc['name'] for vc in valve_curves]}")
 
             # FIXED: More lenient condition - include cylinder if it has EITHER pressure OR valve data
             # This ensures we don't skip cylinders that might have partial data
@@ -1047,12 +1009,8 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                 }
                 
                 cylinders_config.append(cylinder_config)
-                print(f"DEBUG: Added Cylinder {i} to config")
             else:
-                print(f"DEBUG: Skipped Cylinder {i} - no pressure or valve data found")
 
-        print(f"\nDEBUG: Final cylinders_config length: {len(cylinders_config)}")
-        print(f"DEBUG: Cylinder names: {[c['cylinder_name'] for c in cylinders_config]}")
 
         # FIXED: Ensure cylinders are sorted by number to guarantee Cylinder 1 comes first
         cylinders_config.sort(key=lambda x: int(x['cylinder_name'].split()[-1]))
@@ -1086,9 +1044,7 @@ def render_cylinder_selection_sidebar(cylinders_config):
     default_index = 0
     if "Cylinder 1" in cylinder_names:
         default_index = cylinder_names.index("Cylinder 1")
-        print(f"DEBUG: Setting default to Cylinder 1 (index {default_index})")
     else:
-        print(f"DEBUG: Cylinder 1 not found, using first available: {cylinder_names[0]}")
     
     
     # Find default index for Cylinder 1
@@ -2386,10 +2342,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         'ce_terminal': 'maroon'
     }
     
-    # DEBUG: Add debug info
-    st.sidebar.write(f"Debug: CE PT checked: {pressure_options.get('show_ce_pt', False)}")
-    st.sidebar.write(f"Debug: HE PT checked: {pressure_options.get('show_he_pt', False)}")
-    st.sidebar.write(f"Debug: Period Selection: {pressure_options.get('period_selection', 'None')}")
         
     # FIXED: Show CE (Crank End) pressure trace - ADD to existing plot, don't replace
     if pressure_options['show_ce_pt']:
@@ -2398,7 +2350,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         
         if ce_columns:
             ce_pressure_col = ce_columns[0]
-            st.sidebar.write(f"Debug: Found CE column: {ce_pressure_col}")
             
             # Check if we already added this trace to avoid duplicates
             existing_ce_traces = [trace.name for trace in fig.data if trace.name and 'CE PT trace' in trace.name]
@@ -2435,7 +2386,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         
         if he_columns:
             he_pressure_col = he_columns[0]
-            st.sidebar.write(f"Debug: Found HE column: {he_pressure_col}")
             
             # Check if we already added this trace to avoid duplicates
             existing_he_traces = [trace.name for trace in fig.data if trace.name and 'HE PT trace' in trace.name]
@@ -2468,7 +2418,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     # Keep existing CE Theoretical logic (THIS WORKS - DON'T CHANGE)
     if pressure_options['show_ce_theoretical']:
         try:
-            st.sidebar.write("Debug: Attempting CE Theoretical calculation...")
             import numpy as np
             
             theta_rad = np.deg2rad(df['Crank Angle'])
@@ -2501,7 +2450,6 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     # Add HE Theoretical  
     if pressure_options['show_he_theoretical']:
         try:
-            st.sidebar.write("Debug: Attempting HE Theoretical calculation...")
             import numpy as np
             
             theta_rad = np.deg2rad(df['Crank Angle'])
@@ -2713,13 +2661,6 @@ with st.sidebar:
             else:
                 st.sidebar.info("No pressure signals selected for validation")
 
-            # === ADD THIS DEBUG SECTION RIGHT HERE ===
-            st.sidebar.markdown("---")
-            st.sidebar.markdown("**🔧 Debug Info:**")
-            st.sidebar.write(f"Selected Period: {pressure_options.get('period_selection', 'None')}")
-            st.sidebar.write(f"CE PT enabled: {pressure_options.get('show_ce_pt', False)}")
-            st.sidebar.write(f"HE PT enabled: {pressure_options.get('show_he_pt', False)}")
-            # === END DEBUG SECTION ===
     
     clearance_pct = st.number_input(
         "Clearance (%)",
@@ -2913,86 +2854,26 @@ if validated_files:
                         fig.add_vline(x=angle, line_dash="dash", line_color="red", line_width=2,
                                      annotation_text=f"Tagged: {angle:.1f}°", annotation_position="top")
                     
-                    # OPTION 1: Try Streamlit native click detection
-                    try:
-                        # Test if Streamlit 1.30.0 supports on_click parameter
-                        clicked_data = st.plotly_chart(
-                            fig, 
-                            use_container_width=True,
-                            on_select="rerun",  # This might work in newer versions
-                            selection_mode="points",
-                            key=f"interactive_chart_{plot_key}"
-                        )
-                        
-                        # Check if we got click data
-                        if hasattr(clicked_data, 'selection') and clicked_data.selection:
-                            if clicked_data.selection.get('points'):
-                                for point in clicked_data.selection['points']:
-                                    clicked_x = point.get('x')
-                                    if clicked_x is not None:
-                                        if plot_key not in st.session_state.valve_event_tags:
-                                            st.session_state.valve_event_tags[plot_key] = []
-                                        st.session_state.valve_event_tags[plot_key].append(clicked_x)
-                                        st.success(f"✅ Tagged at {clicked_x:.2f}° using native Streamlit click!")
-                                        st.rerun()
-                        
-                        st.write("✅ **Option 1 (Native Streamlit)**: Chart displayed above - try clicking on data points!")
-                        
-                    except Exception as e:
-                        # Fallback if native click doesn't work
-                        st.plotly_chart(fig, use_container_width=True)
-                        st.write(f"❌ **Option 1**: Native click not supported in this Streamlit version: {str(e)}")
-                        st.write("Let's try Option 6 (Altair) below...")
-                        
-                        # OPTION 6: Altair version as fallback
-                        st.markdown("---")
-                        st.markdown("### 🔄 **Option 6: Altair Interactive Version**")
-                        
-                        # Create Altair chart with same data
-                        import altair as alt
-                        
-                        try:
-                            # Prepare data for Altair
-                            chart_data = pd.DataFrame()
-                            chart_data['Crank Angle'] = df['Crank Angle']
-                            
-                            # Add pressure data
-                            pressure_curve = selected_cylinder_config.get('pressure_curve')
-                            if pressure_curve and pressure_curve in df.columns:
-                                chart_data['Pressure'] = df[pressure_curve]
-                                chart_data['Series'] = 'Pressure'
-                                chart_data['Value'] = df[pressure_curve]
-                                chart_data['Unit'] = 'PSI'
-                            
-                            # Create basic Altair chart
-                            click_selection = alt.selection_multi(fields=['Crank Angle'])
-                            
-                            altair_chart = alt.Chart(chart_data).add_selection(
-                                click_selection
-                            ).mark_line().encode(
-                                x=alt.X('Crank Angle:Q', title='Crank Angle (degrees)'),
-                                y=alt.Y('Value:Q', title='Value'),
-                                color=alt.Color('Series:N'),
-                                tooltip=['Crank Angle:Q', 'Value:Q', 'Series:N']
-                            ).properties(
-                                width=700,
-                                height=400,
-                                title=f"Interactive Tagging - {selected_cylinder_name}"
-                            )
-                            
-                            # Display Altair chart
-                            altair_result = st.altair_chart(altair_chart, use_container_width=True)
-                            
-                            st.write("✅ **Option 6 (Altair)**: Chart displayed above - try clicking!")
-                            
-                            # Check for Altair selections
-                            if altair_result and hasattr(altair_result, 'selection'):
-                                st.write("Altair selection data:", altair_result)
-                                
-                        except ImportError:
-                            st.error("❌ **Option 6**: Altair not installed. Install with: `pip install altair`")
-                        except Exception as e:
-                            st.error(f"❌ **Option 6**: Error creating Altair chart: {str(e)}")
+                    # Interactive chart with click detection
+                    clicked_data = st.plotly_chart(
+                        fig, 
+                        use_container_width=True,
+                        on_select="rerun",
+                        selection_mode="points",
+                        key=f"interactive_chart_{plot_key}"
+                    )
+                    
+                    # Check if we got click data
+                    if hasattr(clicked_data, 'selection') and clicked_data.selection:
+                        if clicked_data.selection.get('points'):
+                            for point in clicked_data.selection['points']:
+                                clicked_x = point.get('x')
+                                if clicked_x is not None:
+                                    if plot_key not in st.session_state.valve_event_tags:
+                                        st.session_state.valve_event_tags[plot_key] = []
+                                    st.session_state.valve_event_tags[plot_key].append(clicked_x)
+                                    st.success(f"✅ Tagged at {clicked_x:.2f}°")
+                                    st.rerun()
                     
                     # Show current tags and save options
                     if existing_tags:
