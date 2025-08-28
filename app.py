@@ -1675,20 +1675,15 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 x=0.5, y=0.5,
                 showarrow=False
             )
-# Enable interactive valve tagging by clicking on curve
-tagged_angles = render_interactive_plot_with_event(
-    df,                # 👈 this is the dataframe in scope
-    "Crank Angle",     # X-axis
-    pressure_curve,    # Y-axis column
-    "P-V / Crank Angle View"
-)
+        # Enable interactive valve tagging by clicking on curve
+        tagged_angles = render_interactive_plot_with_event(df, "Crank Angle", pressure_curve, "P-V / Crank Angle View")
 
-# Optional: Show tagged points inline
-if tagged_angles:
-    st.session_state.valve_event_tags = tagged_angles
-    st.markdown("### 🧩 Tagged Crank Angles")
-    for i, angle in enumerate(tagged_angles):
-        st.write(f"{i+1}. {angle:.2f}°")
+        # Optional: Show tagged points inline
+        if tagged_angles:
+            st.session_state.valve_event_tags = tagged_angles
+            st.markdown("### 🧩 Tagged Crank Angles")
+        for i, angle in enumerate(tagged_angles):
+            st.write(f"{i+1}. {angle:.2f}°")
         
         return fig, report_data
 
