@@ -19,6 +19,7 @@ import libsql_client
 from sklearn.ensemble import IsolationForest
 import plotly.express as px
 import math
+from streamlit_plotly_events import plotly_events
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -717,29 +718,6 @@ def display_historical_analysis(db_client):
 
     except Exception as e:
         st.error(f"Failed to load historical data: {e}")
-
-def render_interactive_plot_with_event(df, x_col, y_col, label, existing_events=None):
-    fig = px.line(df, x=x_col, y=y_col, title=f"{label} Curve", markers=True)
-    fig.update_layout(hovermode='x unified')
-
-    # Show previous events (if any)
-    if existing_events:
-        for angle in existing_events:
-            fig.add_vline(x=angle, line_dash="dash", line_color="red", annotation_text=f"Tagged: {angle}°")
-
-    st.markdown(f"### 🔍 Click the curve to tag crank angle positions")
-    selected_points = plotly_events(fig, click_event=True, key=f"{label}_plot")
-
-    if selected_points:
-        clicked_x = selected_points[0].get("x")
-        if clicked_x is not None:
-            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
-            # Save to session
-            if "valve_event_tags" not in st.session_state:
-                st.session_state.valve_event_tags = []
-            st.session_state.valve_event_tags.append(clicked_x)
-
-    return st.session_state.get("valve_event_tags", [])
 
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
@@ -1674,7 +1652,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 x=0.5, y=0.5,
                 showarrow=False
             )
-              
         return fig, report_data
 
     # --- Crank-angle mode OR Dual view mode ---
@@ -1947,34 +1924,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     
         except Exception as e:
             st.warning(f"⚠️ P-V overlay failed: {str(e)}")
-    # Unique key to avoid StreamlitDuplicateElementKey
-    plot_key = f"ca_plot_{cylinder_config.get('cylinder_name','').replace(' ', '_')}_{view_mode}_{np.random.randint(0, 100000)}"
-
-    # Render and enable click capture
-    events = plotly_events(
-        fig,
-        click_event=True,
-        hover_event=False,
-        select_event=False,
-        key=plot_key
-    )
-
-    # Handle click tagging (crank angle)
-    clicked_x = None
-    if events:
-        for ev in events:
-            if 'x' in ev:
-                clicked_x = ev['x']
-                break
-
-        if clicked_x is not None:
-            st.success(f"✅ Crank-angle tagged at: {float(clicked_x):.2f}°")
-            st.session_state.setdefault("valve_event_tags", []).append(float(clicked_x))
-
-    # Display tagged values summary
-    if st.session_state.get("valve_event_tags"):
-        st.caption("**Tagged crank angles:** " + ", ".join(f"{a:.2f}°" for a in st.session_state["valve_event_tags"]))
-
 
     return fig, report_data
 
