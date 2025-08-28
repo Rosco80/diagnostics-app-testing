@@ -1951,6 +1951,16 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             st.warning(f"⚠️ P-V overlay failed: {str(e)}")
 
     return fig, report_data
+# Enable interactive valve tagging by clicking on curve
+tagged_angles = render_interactive_plot_with_event(df, "Crank Angle", pressure_curve or "Pressure", "Valve Event Tagging")
+
+# Optional: Show tagged points
+if tagged_angles:
+    st.session_state.valve_event_tags = tagged_angles
+    st.markdown("### 🧩 Tagged Crank Angles")
+    for i, angle in enumerate(tagged_angles):
+        st.write(f"{i+1}. {angle:.2f}°")
+    
 
 def render_ai_model_tuning_section(db_client, discovered_config):
     """Enhanced AI Model Tuning with machine-specific configuration"""
