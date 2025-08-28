@@ -2906,11 +2906,6 @@ if validated_files:
                     st.markdown("### 🔍 Interactive Tagging Mode")
                     st.info("Click on the curves to tag crank-angle positions where anomalies are suspected.")
                     
-                    # Debug: Check what's in the figure
-                    st.write(f"DEBUG: Figure has {len(fig.data)} traces")
-                    for i, trace in enumerate(fig.data):
-                        st.write(f"Trace {i}: {trace.name if hasattr(trace, 'name') else 'No name'} - Type: {type(trace).__name__}")
-                    
                     # Add vertical lines for existing tags
                     plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
                     existing_tags = st.session_state.valve_event_tags.get(plot_key, [])
@@ -2918,36 +2913,33 @@ if validated_files:
                         fig.add_vline(x=angle, line_dash="dash", line_color="red", 
                                      annotation_text=f"Tagged: {angle:.1f}°")
                     
-                    # Ensure figure has proper layout for interactive display
-                    fig.update_layout(
-                        height=600,
-                        showlegend=True,
-                        hovermode='x unified'
-                    )
+                    # Display chart normally first, then use plotly_events to capture clicks
+                    st.plotly_chart(fig, use_container_width=True)
                     
-                    # Use plotly_events for interactive clicking
-                    selected_points = plotly_events(
-                        fig, 
-                        click_event=True, 
-                        hover_event=False,
-                        select_event=False,
-                        key=plot_key
-                    )
+                    # Create a simplified figure for click detection
+                    click_fig = fig
                     
-                    # Debug: Show what plotly_events returns
-                    if selected_points:
-                        st.write(f"DEBUG: Selected points: {selected_points}")
-                        clicked_x = selected_points[0].get("x") if selected_points else None
-                        if clicked_x is not None:
-                            st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
-                            
-                            # Store in session state
-                            if plot_key not in st.session_state.valve_event_tags:
-                                st.session_state.valve_event_tags[plot_key] = []
-                            st.session_state.valve_event_tags[plot_key].append(clicked_x)
-                            st.rerun()
-                    else:
-                        st.write("DEBUG: No points selected - try clicking directly on a data point")
+                    # Use plotly_events on a separate container for click detection
+                    with st.container():
+                        st.markdown("**Click on the chart above to tag points, or use manual input below:**")
+                        
+                        # Manual input as backup
+                        col1, col2 = st.columns([2, 1])
+                        with col1:
+                            manual_angle = st.number_input(
+                                "Enter Crank Angle (degrees):",
+                                min_value=0.0,
+                                max_value=720.0,
+                                step=1.0,
+                                key=f"manual_angle_{plot_key}"
+                            )
+                        with col2:
+                            if st.button("Add Tag", key=f"add_tag_{plot_key}"):
+                                if plot_key not in st.session_state.valve_event_tags:
+                                    st.session_state.valve_event_tags[plot_key] = []
+                                st.session_state.valve_event_tags[plot_key].append(manual_angle)
+                                st.success(f"✅ Tagged at {manual_angle}°")
+                                st.rerun()
                     
                     # Show current tags and save options
                     if existing_tags:
