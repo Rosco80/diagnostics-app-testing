@@ -2913,15 +2913,20 @@ if validated_files:
                         fig.add_vline(x=angle, line_dash="dash", line_color="red", 
                                      annotation_text=f"Tagged: {angle:.1f}°")
                     
+                    # Ensure figure has proper layout for interactive display
+                    fig.update_layout(
+                        height=600,
+                        showlegend=True,
+                        hovermode='x unified'
+                    )
+                    
                     # Use plotly_events for interactive clicking
                     selected_points = plotly_events(
                         fig, 
                         click_event=True, 
                         hover_event=False,
                         select_event=False,
-                        key=plot_key,
-                        override_height=500,
-                        override_width="100%"
+                        key=plot_key
                     )
                     
                     # Debug: Show what plotly_events returns
