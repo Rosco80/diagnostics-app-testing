@@ -2906,6 +2906,11 @@ if validated_files:
                     st.markdown("### 🔍 Interactive Tagging Mode")
                     st.info("Click on the curves to tag crank-angle positions where anomalies are suspected.")
                     
+                    # Debug: Check what's in the figure
+                    st.write(f"DEBUG: Figure has {len(fig.data)} traces")
+                    for i, trace in enumerate(fig.data):
+                        st.write(f"Trace {i}: {trace.name if hasattr(trace, 'name') else 'No name'} - Type: {type(trace).__name__}")
+                    
                     # Add vertical lines for existing tags
                     plot_key = f"{selected_cylinder_name.replace(' ', '_')}_plot"
                     existing_tags = st.session_state.valve_event_tags.get(plot_key, [])
