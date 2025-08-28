@@ -2667,9 +2667,6 @@ with st.sidebar:
             help="Show P-V diagram as overlay on crank-angle view"
         )
         
-        # Debug: This should appear
-        st.write("DEBUG: This text should appear")
-        
         # Interactive Tagging Mode
         interactive_tagging = st.checkbox(
             "🏷️ Interactive Tagging Mode",
@@ -2917,10 +2914,20 @@ if validated_files:
                                      annotation_text=f"Tagged: {angle:.1f}°")
                     
                     # Use plotly_events for interactive clicking
-                    selected_points = plotly_events(fig, click_event=True, key=plot_key)
+                    selected_points = plotly_events(
+                        fig, 
+                        click_event=True, 
+                        hover_event=False,
+                        select_event=False,
+                        key=plot_key,
+                        override_height=500,
+                        override_width="100%"
+                    )
                     
+                    # Debug: Show what plotly_events returns
                     if selected_points:
-                        clicked_x = selected_points[0].get("x")
+                        st.write(f"DEBUG: Selected points: {selected_points}")
+                        clicked_x = selected_points[0].get("x") if selected_points else None
                         if clicked_x is not None:
                             st.success(f"✅ Crank-angle tagged at: {clicked_x:.2f}°")
                             
@@ -2929,6 +2936,8 @@ if validated_files:
                                 st.session_state.valve_event_tags[plot_key] = []
                             st.session_state.valve_event_tags[plot_key].append(clicked_x)
                             st.rerun()
+                    else:
+                        st.write("DEBUG: No points selected - try clicking directly on a data point")
                     
                     # Show current tags and save options
                     if existing_tags:
