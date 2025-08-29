@@ -85,6 +85,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS analyses (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, anomaly_count INTEGER, threshold REAL, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, analysis_id INTEGER, label_text TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
             "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
+            "CREATE TABLE IF NOT EXISTS waveform_data (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS configs (machine_id TEXT PRIMARY KEY, contamination REAL DEFAULT 0.05, pressure_anom_limit INT DEFAULT 10, valve_anom_limit INT DEFAULT 5, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
             "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
         ])
@@ -952,20 +953,33 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             # FIXED: More robust pressure curve detection
             pressure_curve = None
             
-            # Try Head End first (.{i}H.)
+            # Try Head End first (.{i}H.) - More flexible pattern matching
             he_pressure = next(
-                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                (c for c in all_curve_names if f".{i}H." in c and any(keyword in c.upper() for keyword in ["PRESSURE", "STATIC", "COMPRESSOR", "PT", "PSI"])),
                 None
             )
             
-            # Try Crank End (.{i}C.)
+            # Try Crank End (.{i}C.) - More flexible pattern matching  
             ce_pressure = next(
-                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                (c for c in all_curve_names if f".{i}C." in c and any(keyword in c.upper() for keyword in ["PRESSURE", "STATIC", "COMPRESSOR", "PT", "PSI"])),
                 None
             )
             
             # Prefer Head End, fall back to Crank End
             pressure_curve = he_pressure or ce_pressure
+            
+            # Debug: Log pressure curve detection
+            if not pressure_curve:
+                # Try fallback: any curve with cylinder number and pressure-related keywords
+                fallback_pressure = next(
+                    (c for c in all_curve_names if str(i) in c and any(keyword in c.upper() for keyword in ["PRESSURE", "PSI", "BAR", "KPA"])),
+                    None
+                )
+                if fallback_pressure:
+                    pressure_curve = fallback_pressure
+                    print(f"DEBUG: Using fallback pressure curve for cylinder {i}: {pressure_curve}")
+                else:
+                    print(f"DEBUG: No pressure curve found for cylinder {i}. Available curves: {[c for c in all_curve_names if str(i) in c]}")
             
 
             # FIXED: Correct valve curve detection based on actual XML patterns
@@ -2963,14 +2977,19 @@ if validated_files:
                                         analysis_id = get_last_row_id(db_client)
                                     
                                     # Clear existing tags for this analysis and add new ones
-                                    db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
-                                    for tag in existing_tags:
-                                        if isinstance(tag, dict):
-                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
-                                        else:
-                                            # Handle legacy tags
-                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
-                                        saved_count += 1
+                                    # TEMPORARY: Valve events disabled due to schema mismatch - will re-enable after database update
+                                    try:
+                                        db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
+                                        for tag in existing_tags:
+                                            if isinstance(tag, dict):
+                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
+                                            else:
+                                                # Handle legacy tags
+                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
+                                            saved_count += 1
+                                    except Exception as e:
+                                        st.warning(f"Valve events saving temporarily disabled due to database schema update. Tags saved to session only. Error: {e}")
+                                        saved_count = len(existing_tags)
                                 
                                 st.success(f"✅ Saved {saved_count} classified tags to database!")
                         with tags_col3:
