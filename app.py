@@ -1009,8 +1009,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                 }
                 
                 cylinders_config.append(cylinder_config)
-            else:
-
+            # If no pressure or valve data found, skip this cylinder
 
         # FIXED: Ensure cylinders are sorted by number to guarantee Cylinder 1 comes first
         cylinders_config.sort(key=lambda x: int(x['cylinder_name'].split()[-1]))
@@ -1039,13 +1038,6 @@ def render_cylinder_selection_sidebar(cylinders_config):
     if not cylinder_names:
         st.sidebar.error("No cylinders detected")
         return None, None
-    
-    # FIXED: Force Cylinder 1 to be default if it exists
-    default_index = 0
-    if "Cylinder 1" in cylinder_names:
-        default_index = cylinder_names.index("Cylinder 1")
-    else:
-    
     
     # Find default index for Cylinder 1
     default_index = 0
