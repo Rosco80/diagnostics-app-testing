@@ -84,8 +84,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS sessions (id INTEGER PRIMARY KEY, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, machine_id TEXT, rpm TEXT)",
             "CREATE TABLE IF NOT EXISTS analyses (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, anomaly_count INTEGER, threshold REAL, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, analysis_id INTEGER, label_text TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
-            "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
-            "CREATE TABLE IF NOT EXISTS waveform_data (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
+            "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, analysis_id INTEGER, event_type TEXT, crank_angle REAL, fault_classification TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
             "CREATE TABLE IF NOT EXISTS configs (machine_id TEXT PRIMARY KEY, contamination REAL DEFAULT 0.05, pressure_anom_limit INT DEFAULT 10, valve_anom_limit INT DEFAULT 5, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
             "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
         ])
@@ -846,16 +845,12 @@ def load_all_curves_data(_curves_xml_content):
         st.error(f"Failed to load curves data: {e}")
         return None, None
 
-def save_valve_event_to_db(db_client, session_id, cylinder_name, curve_name, crank_angle, event_type="Manual Tag", fault_classification=None):
+def save_valve_event_to_db(db_client, analysis_id, crank_angle, event_type="Manual Tag", fault_classification=None):
     """Save valve event to database with fault classification"""
-    try:
-        db_client.execute(
-            "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, cylinder_name, curve_name, crank_angle, 0.0, event_type)
-        )
-    except Exception as e:
-        st.error(f"Database error saving valve event: {e}")
-        raise
+    db_client.execute(
+        "INSERT INTO valve_events (analysis_id, event_type, crank_angle, fault_classification) VALUES (?, ?, ?, ?)",
+        (analysis_id, event_type, crank_angle, fault_classification)
+    )
 
 
 def extract_rpm_from_source(source_xml_content):
@@ -953,33 +948,20 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             # FIXED: More robust pressure curve detection
             pressure_curve = None
             
-            # Try Head End first (.{i}H.) - More flexible pattern matching
+            # Try Head End first (.{i}H.)
             he_pressure = next(
-                (c for c in all_curve_names if f".{i}H." in c and any(keyword in c.upper() for keyword in ["PRESSURE", "STATIC", "COMPRESSOR", "PT", "PSI"])),
+                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c and "COMPRESSOR PT" in c),
                 None
             )
             
-            # Try Crank End (.{i}C.) - More flexible pattern matching  
+            # Try Crank End (.{i}C.)
             ce_pressure = next(
-                (c for c in all_curve_names if f".{i}C." in c and any(keyword in c.upper() for keyword in ["PRESSURE", "STATIC", "COMPRESSOR", "PT", "PSI"])),
+                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c and "COMPRESSOR PT" in c),
                 None
             )
             
             # Prefer Head End, fall back to Crank End
             pressure_curve = he_pressure or ce_pressure
-            
-            # Debug: Log pressure curve detection
-            if not pressure_curve:
-                # Try fallback: any curve with cylinder number and pressure-related keywords
-                fallback_pressure = next(
-                    (c for c in all_curve_names if str(i) in c and any(keyword in c.upper() for keyword in ["PRESSURE", "PSI", "BAR", "KPA"])),
-                    None
-                )
-                if fallback_pressure:
-                    pressure_curve = fallback_pressure
-                    print(f"DEBUG: Using fallback pressure curve for cylinder {i}: {pressure_curve}")
-                else:
-                    print(f"DEBUG: No pressure curve found for cylinder {i}. Available curves: {[c for c in all_curve_names if str(i) in c]}")
             
 
             # FIXED: Correct valve curve detection based on actual XML patterns
@@ -1770,35 +1752,29 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             )
 
         # Add valve events
-        if analysis_ids:
-            # Get session context from first analysis
-            first_analysis_id = list(analysis_ids.values())[0]
+        analysis_id = analysis_ids.get(vc['name'])
+        if analysis_id:
             try:
-                context_rs = _db_client.execute("SELECT session_id, cylinder_name FROM analyses WHERE id = ?", (first_analysis_id,))
-                if context_rs.rows:
-                    session_id, cylinder_name = context_rs.rows[0]
-                    
-                    # Query valve events for this curve
-                    events_raw = _db_client.execute(
-                        "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
-                        (session_id, cylinder_name, vc['name'])
-                    ).rows
-                    events = {etype: angle for etype, angle in events_raw}
-                    if 'open' in events and 'close' in events:
-                        fig.add_vrect(
-                            x0=events['open'],
-                            x1=events['close'],
-                            fillcolor=color_rgba.replace('0.4','0.2'),
-                            layer="below",
-                            line_width=0
-                        )
-                    for event_type, crank_angle in events.items():
-                        fig.add_vline(
-                            x=crank_angle,
-                            line_width=2,
-                            line_dash="dash",
-                            line_color='green' if event_type == 'open' else 'red'
-                        )
+                events_raw = _db_client.execute(
+                    "SELECT event_type, crank_angle FROM valve_events WHERE analysis_id = ?",
+                    (analysis_id,)
+                ).rows
+                events = {etype: angle for etype, angle in events_raw}
+                if 'open' in events and 'close' in events:
+                    fig.add_vrect(
+                        x0=events['open'],
+                        x1=events['close'],
+                        fillcolor=color_rgba.replace('0.4','0.2'),
+                        layer="below",
+                        line_width=0
+                    )
+                for event_type, crank_angle in events.items():
+                    fig.add_vline(
+                        x=crank_angle,
+                        line_width=2,
+                        line_dash="dash",
+                        line_color='green' if event_type == 'open' else 'red'
+                    )
             except Exception as e:
                 st.warning(f"Could not load valve events for {vc['name']}: {e}")
         
@@ -2977,19 +2953,14 @@ if validated_files:
                                         analysis_id = get_last_row_id(db_client)
                                     
                                     # Clear existing tags for this analysis and add new ones
-                                    # TEMPORARY: Valve events disabled due to schema mismatch - will re-enable after database update
-                                    try:
-                                        db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
-                                        for tag in existing_tags:
-                                            if isinstance(tag, dict):
-                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
-                                            else:
-                                                # Handle legacy tags
-                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
-                                            saved_count += 1
-                                    except Exception as e:
-                                        st.warning(f"Valve events saving temporarily disabled due to database schema update. Tags saved to session only. Error: {e}")
-                                        saved_count = len(existing_tags)
+                                    db_client.execute("DELETE FROM valve_events WHERE analysis_id = ? AND event_type = ?", (analysis_id, 'Manual Tag'))
+                                    for tag in existing_tags:
+                                        if isinstance(tag, dict):
+                                            save_valve_event_to_db(db_client, analysis_id, tag['angle'], 'Manual Tag', tag['fault_classification'])
+                                        else:
+                                            # Handle legacy tags
+                                            save_valve_event_to_db(db_client, analysis_id, tag, 'Manual Tag', 'Legacy tag')
+                                        saved_count += 1
                                 
                                 st.success(f"✅ Saved {saved_count} classified tags to database!")
                         with tags_col3:
@@ -3083,12 +3054,9 @@ if validated_files:
                                 open_angle = cols[0].number_input("Open Angle", key=f"open_{analysis_ids[item['name']]}", value=None, format="%.2f")
                                 close_angle = cols[1].number_input("Close Angle", key=f"close_{analysis_ids[item['name']]}", value=None, format="%.2f")
                                 if st.form_submit_button(f"Save Events for {item['name']}"):
-                                    # Clear existing valve events for this curve
-                                    db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                                    if open_angle is not None: 
-                                        db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], open_angle, 0.0, 'open'))
-                                    if close_angle is not None: 
-                                        db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], close_angle, 0.0, 'close'))
+                                    db_client.execute("DELETE FROM valve_events WHERE analysis_id = ?", (analysis_ids[item['name']],))
+                                    if open_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'open', open_angle))
+                                    if close_angle is not None: db_client.execute("INSERT INTO valve_events (analysis_id, event_type, crank_angle) VALUES (?, ?, ?)", (analysis_ids[item['name']], 'close', close_angle))
                                     st.success(f"Events updated for {item['name']}.")
                                     st.rerun()
 
