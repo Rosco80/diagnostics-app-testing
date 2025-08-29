@@ -85,6 +85,7 @@ def init_db():
             "CREATE TABLE IF NOT EXISTS analyses (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, anomaly_count INTEGER, threshold REAL, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS labels (id INTEGER PRIMARY KEY, analysis_id INTEGER, label_text TEXT, FOREIGN KEY (analysis_id) REFERENCES analyses (id))",
             "CREATE TABLE IF NOT EXISTS valve_events (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
+            "CREATE TABLE IF NOT EXISTS anomaly_tags (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, fault_classification TEXT, tag_type TEXT DEFAULT 'Manual Tag', created_at DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS waveform_data (id INTEGER PRIMARY KEY, session_id INTEGER, cylinder_name TEXT, curve_name TEXT, crank_angle REAL, data_value REAL, curve_type TEXT, FOREIGN KEY (session_id) REFERENCES sessions (id))",
             "CREATE TABLE IF NOT EXISTS configs (machine_id TEXT PRIMARY KEY, contamination REAL DEFAULT 0.05, pressure_anom_limit INT DEFAULT 10, valve_anom_limit INT DEFAULT 5, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)",
             "CREATE TABLE IF NOT EXISTS alerts (id INTEGER PRIMARY KEY, machine_id TEXT, cylinder TEXT, severity TEXT, message TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)"
@@ -855,6 +856,17 @@ def save_valve_event_to_db(db_client, session_id, cylinder_name, curve_name, cra
         )
     except Exception as e:
         st.error(f"Database error saving valve event: {e}")
+        raise
+
+def save_anomaly_tag_to_db(db_client, session_id, cylinder_name, curve_name, crank_angle, fault_classification, tag_type="Manual Tag"):
+    """Save anomaly tag to database - separate from valve events"""
+    try:
+        db_client.execute(
+            "INSERT INTO anomaly_tags (session_id, cylinder_name, curve_name, crank_angle, fault_classification, tag_type) VALUES (?, ?, ?, ?, ?, ?)",
+            (session_id, cylinder_name, curve_name, crank_angle, fault_classification, tag_type)
+        )
+    except Exception as e:
+        st.error(f"Database error saving anomaly tag: {e}")
         raise
 
 
@@ -2963,14 +2975,14 @@ if validated_files:
                                                         (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
                                         analysis_id = get_last_row_id(db_client)
                                     
-                                    # Clear existing tags for this analysis and add new ones
-                                    db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
+                                    # Clear existing anomaly tags for this analysis and add new ones
+                                    db_client.execute("DELETE FROM anomaly_tags WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND tag_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
                                     for tag in existing_tags:
                                         if isinstance(tag, dict):
-                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
+                                            save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], tag['fault_classification'], 'Manual Tag')
                                         else:
                                             # Handle legacy tags
-                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
+                                            save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Legacy tag', 'Manual Tag')
                                         saved_count += 1
                                 
                                 st.success(f"✅ Saved {saved_count} classified tags to database!")
