@@ -2964,19 +2964,14 @@ if validated_files:
                                         analysis_id = get_last_row_id(db_client)
                                     
                                     # Clear existing tags for this analysis and add new ones
-                                    # TEMPORARY: Valve events disabled due to schema mismatch - will re-enable after database update
-                                    try:
-                                        db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
-                                        for tag in existing_tags:
-                                            if isinstance(tag, dict):
-                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
-                                            else:
-                                                # Handle legacy tags
-                                                save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
-                                            saved_count += 1
-                                    except Exception as e:
-                                        st.warning(f"Valve events saving temporarily disabled due to database schema update. Tags saved to session only. Error: {e}")
-                                        saved_count = len(existing_tags)
+                                    db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND curve_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
+                                    for tag in existing_tags:
+                                        if isinstance(tag, dict):
+                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], 'Manual Tag', tag['fault_classification'])
+                                        else:
+                                            # Handle legacy tags
+                                            save_valve_event_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Manual Tag', 'Legacy tag')
+                                        saved_count += 1
                                 
                                 st.success(f"✅ Saved {saved_count} classified tags to database!")
                         with tags_col3:
