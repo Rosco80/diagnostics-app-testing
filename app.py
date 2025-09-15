@@ -17,6 +17,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import libsql_client
 from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import MinMaxScaler
 import plotly.express as px
 import math
 
@@ -739,26 +740,40 @@ def display_historical_analysis(db_client):
 
 def run_anomaly_detection(df, curve_names, contamination_level=0.05): 
     """
-    Applies Isolation Forest to detect anomalies and calculate their scores.
+    Applies Isolation Forest to detect anomalies, calculate severity scores,
+    and normalize them into 0–1 confidence values.
     """
     for curve in curve_names:
         if curve in df.columns:
             data = df[[curve]].values
-            # Use the contamination_level parameter
             model = IsolationForest(contamination=contamination_level, random_state=42)
             
-            # Fit the model and get binary predictions (-1 for anomalies)
+            # Fit the model
             predictions = model.fit_predict(data)
             df[f'{curve}_anom'] = predictions == -1
 
-            # Get the raw anomaly scores. Lower scores are more anomalous.
-            anomaly_scores = model.score_samples(data)
-            
-            # We invert the scores so that higher values indicate a more severe anomaly.
-            # This is more intuitive for visualization and reporting.
-            df[f'{curve}_anom_score'] = -1 * anomaly_scores
+            # Raw anomaly scores (lower = more anomalous)
+            raw_scores = model.score_samples(data)
+
+            # Flip so higher = more anomalous
+            severity_scores = -1 * raw_scores
+            df[f'{curve}_anom_score'] = severity_scores
+
+            # Normalize scores into 0–1 confidence range
+            scaler = MinMaxScaler(feature_range=(0, 1))
+            confidences = scaler.fit_transform(severity_scores.reshape(-1, 1))
+            df[f'{curve}_anom_confidence'] = confidences.flatten()
+
+            # Optional: map into levels
+            def classify_confidence(c):
+                if c >= 0.8: return "CRITICAL"
+                elif c >= 0.6: return "HIGH"
+                elif c >= 0.4: return "MEDIUM"
+                else: return "LOW"
+            df[f'{curve}_anom_level'] = [classify_confidence(c) for c in confidences.flatten()]
             
     return df
+
 
 def run_rule_based_diagnostics(report_data):
     """
@@ -1746,7 +1761,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 secondary_y=True
             )
 
-        # Add anomalies
+        # Add anomalies with confidence coloring
         anomalies_df = df[df[f'{curve_name}_anom']]
         if not anomalies_df.empty:
             anomaly_vibration_data = anomalies_df[curve_name] + current_offset
@@ -1757,16 +1772,24 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     mode='markers',
                     name=f"{label_name} Anomalies",
                     marker=dict(
-                        color=anomalies_df[f'{curve_name}_anom_score'],
+                        color=anomalies_df[f'{curve_name}_anom_confidence'],  # use confidence
                         colorscale='Reds',
-                        showscale=False
+                        showscale=True,  # display color bar
+                        colorbar=dict(title="Anomaly Confidence", x=1.05)  # side legend
                     ),
                     hoverinfo='text',
-                    text=[f'Score: {score:.2f}' for score in anomalies_df[f'{curve_name}_anom_score']],
+                    text=[
+                        f"Confidence: {conf:.2f} | Level: {lvl}"
+                        for conf, lvl in zip(
+                            anomalies_df[f'{curve_name}_anom_confidence'],
+                            anomalies_df[f'{curve_name}_anom_level']
+                        )
+                    ],
                     showlegend=False
                 ),
                 secondary_y=True
             )
+            
 
         # Add valve events
         if analysis_ids:
@@ -1776,28 +1799,32 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 context_rs = _db_client.execute("SELECT session_id, cylinder_name FROM analyses WHERE id = ?", (first_analysis_id,))
                 if context_rs.rows:
                     session_id, cylinder_name = context_rs.rows[0]
-                    
+
                     # Query valve events for this curve
                     events_raw = _db_client.execute(
                         "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
                         (session_id, cylinder_name, vc['name'])
                     ).rows
-                    events = {etype: angle for etype, angle in events_raw}
-                    if 'open' in events and 'close' in events:
-                        fig.add_vrect(
-                            x0=events['open'],
-                            x1=events['close'],
-                            fillcolor=color_rgba.replace('0.4','0.2'),
-                            layer="below",
-                            line_width=0
-                        )
-                    for event_type, crank_angle in events.items():
-                        fig.add_vline(
-                            x=crank_angle,
-                            line_width=2,
-                            line_dash="dash",
-                            line_color='green' if event_type == 'open' else 'red'
-                        )
+
+                    # Only process events if we have data
+                    if events_raw:
+                        events = {etype: angle for etype, angle in events_raw}
+                        if 'open' in events and 'close' in events:
+                            fig.add_vrect(
+                                x0=events['open'],
+                                x1=events['close'],
+                                fillcolor=color_rgba.replace('0.4','0.2'),
+                                layer="below",
+                                line_width=0
+                            )
+                        for event_type, crank_angle in events.items():
+                            fig.add_vline(
+                                x=crank_angle,
+                                line_width=2,
+                                line_dash="dash",
+                                line_color='green' if event_type == 'open' else 'red'
+                            )
+                    # No warning needed when no valve events exist - this is normal
             except Exception as e:
                 st.warning(f"Could not load valve events for {vc['name']}: {e}")
         
