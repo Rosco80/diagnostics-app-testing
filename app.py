@@ -325,13 +325,13 @@ def validate_xml_files(uploaded_files):
                         'status': 'Valid'
                     }
                 
-        except ET.ParseError as e:
+        except ET.ParseError:
             validation_results['errors'].append(f"{file_type.title()} file: Invalid XML format")
             validation_results['file_info'][file_type] = {'status': 'Invalid XML', 'error': 'XML parsing failed'}
         except UnicodeDecodeError:
             validation_results['errors'].append(f"{file_type.title()} file: Invalid file encoding")
             validation_results['file_info'][file_type] = {'status': 'Encoding Error', 'error': 'Cannot decode file'}
-        except Exception as e:
+        except Exception:
             validation_results['errors'].append(f"{file_type.title()} file: Unexpected error")
             validation_results['file_info'][file_type] = {'status': 'Error', 'error': 'Processing failed'}
     
@@ -819,9 +819,11 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
         match_count = 0
         for row in rows:
             all_cells_in_row = row.findall('ss:Cell', NS)
-            if not all_cells_in_row: continue
+            if not all_cells_in_row:
+                continue
             first_cell_data_node = all_cells_in_row[0].find('ss:Data', NS)
-            if first_cell_data_node is None or first_cell_data_node.text is None: continue
+            if first_cell_data_node is None or first_cell_data_node.text is None:
+                continue
             if partial_key.upper() in (first_cell_data_node.text or "").strip().upper():
                 match_count += 1
                 if match_count == occurrence:
@@ -1065,6 +1067,9 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
 
         # FIXED: Ensure cylinders are sorted by number to guarantee Cylinder 1 comes first
         cylinders_config.sort(key=lambda x: int(x['cylinder_name'].split()[-1]))
+
+        if len(cylinders_config) == 0:
+            return None
 
         return {
             "machine_id": machine_id,
@@ -2147,9 +2152,12 @@ def generate_pdf_report_enhanced(machine_id, rpm, cylinder_name, report_data, he
         st.warning("ReportLab not installed. PDF generation unavailable.")
         return None
     
-    if suggestions is None: suggestions = {}
-    if health_score is None: health_score = 50.0
-    if critical_alerts is None: critical_alerts = []
+    if suggestions is None:
+        suggestions = {}
+    if health_score is None:
+        health_score = 50.0
+    if critical_alerts is None:
+        critical_alerts = []
     
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=72, leftMargin=72, topMargin=72, bottomMargin=18)
