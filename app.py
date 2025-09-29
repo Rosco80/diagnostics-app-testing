@@ -2339,7 +2339,7 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
     # FIXED: Check CE PT trace using actual time-series data from df (CURVES.xml)
     if pressure_options.get('show_ce_pt', False):
         # Look for CE pressure columns in the actual DataFrame
-        ce_columns = [col for col in df.columns if '.1C.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        ce_columns = [col for col in df.columns if '.1C.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
         
         if ce_columns and len(ce_columns) > 0:
             ce_pressure_data = df[ce_columns[0]]  # Use the actual time-series data
@@ -2359,7 +2359,7 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
     # FIXED: Check HE PT trace using actual time-series data from df (CURVES.xml)
     if pressure_options.get('show_he_pt', False):
         # Look for HE pressure columns in the actual DataFrame
-        he_columns = [col for col in df.columns if '.1H.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        he_columns = [col for col in df.columns if '.1H.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
         
         if he_columns and len(he_columns) > 0:
             he_pressure_data = df[he_columns[0]]  # Use the actual time-series data
@@ -2421,7 +2421,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     # FIXED: Show CE (Crank End) pressure trace - ADD to existing plot, don't replace
     if pressure_options['show_ce_pt']:
         # Look for CE pressure columns directly in DataFrame
-        ce_columns = [col for col in df.columns if '.1C.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        ce_columns = [col for col in df.columns if '.1C.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
         
         if ce_columns:
             ce_pressure_col = ce_columns[0]
@@ -2457,7 +2457,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     # FIXED: Show HE (Head End) pressure trace - ADD to existing plot, don't replace
     if pressure_options['show_he_pt']:
         # Look for HE pressure columns directly in DataFrame  
-        he_columns = [col for col in df.columns if '.1H.' in col and 'STATIC' in col and 'COMPRESSOR PT' in col]
+        he_columns = [col for col in df.columns if '.1H.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
         
         if he_columns:
             he_pressure_col = he_columns[0]
