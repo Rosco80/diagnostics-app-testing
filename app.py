@@ -989,13 +989,13 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             
             # Try Head End first (.{i}H.)
             he_pressure = next(
-                (c for c in all_curve_names if f".{i}H." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                (c for c in all_curve_names if f".{i}H." in c and ("STATIC" in c or "SPECIAL" in c) and "COMPRESSOR PT" in c),
                 None
             )
             
             # Try Crank End (.{i}C.)
             ce_pressure = next(
-                (c for c in all_curve_names if f".{i}C." in c and "STATIC" in c and "COMPRESSOR PT" in c),
+                (c for c in all_curve_names if f".{i}C." in c and ("STATIC" in c or "SPECIAL" in c) and "COMPRESSOR PT" in c),
                 None
             )
             
