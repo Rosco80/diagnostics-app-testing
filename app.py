@@ -9,8 +9,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import io
-import json
-import sqlite3
 import datetime
 import time
 import plotly.graph_objects as go
@@ -60,7 +58,7 @@ TAG_FAULT_TYPES = [
     "Other fault"
 ]
 try:
-    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
     from reportlab.lib.styles import getSampleStyleSheet
     from reportlab.lib import colors
@@ -285,7 +283,7 @@ def validate_xml_files(uploaded_files):
                     machine_info = None
                     try:
                         machine_info = find_xml_value(root, 'Levels', 'Machine', 2)
-                    except:
+                    except Exception:
                         pass
                     
                     if not machine_info or machine_info == 'N/A':
@@ -312,7 +310,7 @@ def validate_xml_files(uploaded_files):
                         for elem in root.iter():
                             if hasattr(elem, 'text') and elem.text and 'CYLINDER' in str(elem.text):
                                 config_count += 1
-                    except:
+                    except Exception:
                         config_count = 0
                     
                     validation_results['file_info'][file_type] = {
@@ -363,7 +361,7 @@ def extract_preview_info(files_content):
                 if hasattr(elem, 'text') and elem.text and '/' in str(elem.text) and len(str(elem.text)) > 8:
                     preview_info['date_time'] = str(elem.text)
                     break
-        except:
+        except Exception:
             pass
         preview_info['file_sizes']['levels'] = len(files_content['levels']) / 1024
 
@@ -383,7 +381,7 @@ def extract_preview_info(files_content):
                     break
             preview_info['total_curves'] = curve_count
 
-        except:
+        except Exception:
             pass
         preview_info['file_sizes']['curves'] = len(files_content['curves']) / 1024
 
@@ -418,7 +416,7 @@ def extract_preview_info(files_content):
                             preview_info['cylinder_count'] = len(config['cylinders'])
                             if preview_info['machine_id'] == 'Unknown' and config.get('machine_id'):
                                 preview_info['machine_id'] = config['machine_id']
-            except:
+            except Exception:
                 # Fallback: simple bore count
                 bore_count = 0
                 for elem in source_root.iter():
@@ -426,7 +424,7 @@ def extract_preview_info(files_content):
                         bore_count += 1
                 preview_info['cylinder_count'] = min(bore_count, 10)
 
-        except:
+        except Exception:
             pass
         preview_info['file_sizes']['source'] = len(files_content['source']) / 1024
 
@@ -766,9 +764,12 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
 
             # Optional: map into levels
             def classify_confidence(c):
-                if c >= 0.8: return "CRITICAL"
-                elif c >= 0.6: return "HIGH"
-                elif c >= 0.4: return "MEDIUM"
+                if c >= 0.8:
+                    return "CRITICAL"
+                elif c >= 0.6:
+                    return "HIGH"
+                elif c >= 0.4:
+                    return "MEDIUM"
                 else: return "LOW"
             df[f'{curve}_anom_level'] = [classify_confidence(c) for c in confidences.flatten()]
             
@@ -812,7 +813,8 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
     try:
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
         ws = next((ws for ws in root.findall('.//ss:Worksheet', NS) if ws.attrib.get('{urn:schemas-microsoft-com:office:spreadsheet}Name') == sheet_name), None)
-        if ws is None: return "N/A"
+        if ws is None:
+            return "N/A"
         rows = ws.findall('.//ss:Row', NS)
         match_count = 0
         for row in rows:
@@ -828,7 +830,8 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
                     current_idx = 1
                     for cell in all_cells_in_row:
                         ss_index_str = cell.get(f'{{{NS["ss"]}}}Index')
-                        if ss_index_str: current_idx = int(ss_index_str)
+                        if ss_index_str:
+                            current_idx = int(ss_index_str)
                         dense_cells[current_idx] = cell
                         current_idx += 1
                     if target_idx in dense_cells:
@@ -845,14 +848,16 @@ def load_all_curves_data(_curves_xml_content):
         root = ET.fromstring(_curves_xml_content)
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
         ws = next((ws for ws in root.findall('.//ss:Worksheet', NS) if ws.attrib.get('{urn:schemas-microsoft-com:office:spreadsheet}Name') == 'Curves'), None)
-        if ws is None: return None, None
+        if ws is None:
+            return None, None
         table = ws.find('.//ss:Table', NS)
         rows = table.findall('ss:Row', NS)
         header_cells = rows[1].findall('ss:Cell', NS)
         raw_headers = [c.find('ss:Data', NS).text or '' for c in header_cells]
         full_header_list = ["Crank Angle"] + [re.sub(r'\s+', ' ', name.strip()) for name in raw_headers[1:]]
         data = [[cell.find('ss:Data', NS).text for cell in r.findall('ss:Cell', NS)] for r in rows[6:]]
-        if not data: return None, None
+        if not data:
+            return None, None
         num_data_columns = len(data[0])
         actual_columns = full_header_list[:num_data_columns]
         df = pd.DataFrame(data, columns=actual_columns).apply(pd.to_numeric, errors='coerce').dropna()
@@ -903,7 +908,7 @@ def extract_rpm_from_source(source_xml_content):
                     if rpm_data is not None:
                         try:
                             return f"{float(rpm_data.text):.0f}"
-                        except:
+                        except (ValueError, TypeError):
                             return "N/A"
     except Exception as e:
         print("RPM extraction failed:", e)
@@ -1001,15 +1006,15 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             
             # Head End Discharge (.{i}HD1)
             he_discharge = next(
-                (c for c in all_curve_names if f".{i}HD1" in c and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}HD1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
                 None
             )
             if he_discharge:
                 valve_curves.append({"name": "HE Discharge", "curve": he_discharge})
             
-            # Head End Suction (.{i}HS1)  
+            # Head End Suction (.{i}HS1)
             he_suction = next(
-                (c for c in all_curve_names if f".{i}HS1" in c and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}HS1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
                 None
             )
             if he_suction:
@@ -1017,7 +1022,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             
             # Crank End Discharge (.{i}CD1)
             ce_discharge = next(
-                (c for c in all_curve_names if f".{i}CD1" in c and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}CD1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
                 None
             )
             if ce_discharge:
@@ -1025,7 +1030,7 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             
             # Crank End Suction (.{i}CS1)
             ce_suction = next(
-                (c for c in all_curve_names if f".{i}CS1" in c and "VIBRATION" in c),
+                (c for c in all_curve_names if f".{i}CS1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
                 None
             )
             if ce_suction:
@@ -1113,12 +1118,14 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         col_idx = cylinder_index
         
         def convert_kpa_to_psi(kpa_str):
-            if kpa_str == "N/A" or not kpa_str: return "N/A"
+            if kpa_str == "N/A" or not kpa_str:
+                return "N/A"
             try: return f"{float(kpa_str) * 0.145038:.1f}"
             except (ValueError, TypeError): return kpa_str
 
         def format_numeric_value(value_str, precision=2):
-            if value_str == "N/A" or not value_str: return "N/A"
+            if value_str == "N/A" or not value_str:
+                return "N/A"
             try: return f"{float(value_str):.{precision}f}"
             except (ValueError, TypeError): return value_str
 
@@ -1472,7 +1479,6 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
         anomaly_data = [['Component', 'Anomaly Count', 'Avg. Threshold', 'Unit', 'Status']]
         for item in report_data:
             status = "⚠️ High" if item.get('count', 0) > 5 else "✓ Normal"
-            status_color_cell = colors.red if item.get('count', 0) > 5 else colors.green
             anomaly_data.append([
                 item.get('name', 'Unknown'),
                 str(item.get('count', 0)),
@@ -2109,7 +2115,7 @@ def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_aler
                 "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
                 (machine_id, cylinder_name, 'CRITICAL', alert_msg, current_time)
             )
-        except:
+        except Exception:
             pass
         st.error(f"🚨 CRITICAL ALERT: {alert_msg}")
     
@@ -2120,7 +2126,7 @@ def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_aler
                 "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
                 (machine_id, cylinder_name, 'WARNING', alert_msg, current_time)
             )
-        except:
+        except Exception:
             pass
         st.warning(f"⚠️ WARNING: {alert_msg}")
     
@@ -2131,7 +2137,7 @@ def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_aler
                 "INSERT INTO alerts (machine_id, cylinder, severity, message, created_at) VALUES (?, ?, ?, ?, ?)",
                 (machine_id, cylinder_name, 'HIGH', alert, current_time)
             )
-        except:
+        except Exception:
             pass
         st.error(f"🔥 {alert}")
 
