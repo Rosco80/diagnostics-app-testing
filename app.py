@@ -599,7 +599,7 @@ def enhanced_file_upload_section():
             for file_type, info in validation_results['file_info'].items():
                 st.markdown(f"**{file_type.title()} File Analysis:**")
                 if info['status'] == 'Valid':
-                    st.write(f"• Status: ✅ Valid XML structure")
+                    st.write("• Status: ✅ Valid XML structure")
                     st.write(f"• File size: {info['size_kb']:.1f} KB")
                     if file_type == 'curves':
                         st.write(f"• Data elements: {info['data_points']}")
@@ -770,7 +770,8 @@ def run_anomaly_detection(df, curve_names, contamination_level=0.05):
                     return "HIGH"
                 elif c >= 0.4:
                     return "MEDIUM"
-                else: return "LOW"
+                else:
+                    return "LOW"
             df[f'{curve}_anom_level'] = [classify_confidence(c) for c in confidences.flatten()]
             
     return df
@@ -1154,14 +1155,18 @@ def generate_health_report_table(_source_xml_content, _levels_xml_content, cylin
         def convert_kpa_to_psi(kpa_str):
             if kpa_str == "N/A" or not kpa_str:
                 return "N/A"
-            try: return f"{float(kpa_str) * 0.145038:.1f}"
-            except (ValueError, TypeError): return kpa_str
+            try:
+                return f"{float(kpa_str) * 0.145038:.1f}"
+            except (ValueError, TypeError):
+                return kpa_str
 
         def format_numeric_value(value_str, precision=2):
             if value_str == "N/A" or not value_str:
                 return "N/A"
-            try: return f"{float(value_str):.{precision}f}"
-            except (ValueError, TypeError): return value_str
+            try:
+                return f"{float(value_str):.{precision}f}"
+            except (ValueError, TypeError):
+                return value_str
 
         suction_p = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'SUCTION PRESSURE GAUGE', 2))
         discharge_p = convert_kpa_to_psi(find_xml_value(levels_root, 'Levels', 'DISCHARGE PRESSURE GAUGE', 2))
@@ -2933,7 +2938,8 @@ if validated_files:
             cylinder_names = [c.get("cylinder_name") for c in cylinders]
             
             # Rest of your existing code stays the same...
-            with st.sidebar: selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
+            with st.sidebar:
+                selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
                                 
             if selected_cylinder_config:
