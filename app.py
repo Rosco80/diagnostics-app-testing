@@ -1024,7 +1024,16 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                         valve_num += char
                     else:
                         break
-                valve_name = f"HE Discharge {valve_num}" if valve_num else "HE Discharge"
+
+                # FIXED: Add sensor type suffix to differentiate VIBRATION vs ULTRASONIC
+                if "ULTRASONIC" in valve_curve.upper():
+                    sensor_type = " (US)"
+                elif "VIBRATION" in valve_curve.upper():
+                    sensor_type = " (VIB)"
+                else:
+                    sensor_type = ""
+
+                valve_name = f"HE Discharge {valve_num}{sensor_type}" if valve_num else f"HE Discharge{sensor_type}"
                 valve_curves.append({"name": valve_name, "curve": valve_curve})
 
             # Head End Suction (.{i}HS1, .{i}HS2, .{i}HS3, ...)
@@ -1039,7 +1048,16 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                         valve_num += char
                     else:
                         break
-                valve_name = f"HE Suction {valve_num}" if valve_num else "HE Suction"
+
+                # FIXED: Add sensor type suffix to differentiate VIBRATION vs ULTRASONIC
+                if "ULTRASONIC" in valve_curve.upper():
+                    sensor_type = " (US)"
+                elif "VIBRATION" in valve_curve.upper():
+                    sensor_type = " (VIB)"
+                else:
+                    sensor_type = ""
+
+                valve_name = f"HE Suction {valve_num}{sensor_type}" if valve_num else f"HE Suction{sensor_type}"
                 valve_curves.append({"name": valve_name, "curve": valve_curve})
 
             # Crank End Discharge (.{i}CD1, .{i}CD2, .{i}CD3, ...)
@@ -1054,7 +1072,16 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                         valve_num += char
                     else:
                         break
-                valve_name = f"CE Discharge {valve_num}" if valve_num else "CE Discharge"
+
+                # FIXED: Add sensor type suffix to differentiate VIBRATION vs ULTRASONIC
+                if "ULTRASONIC" in valve_curve.upper():
+                    sensor_type = " (US)"
+                elif "VIBRATION" in valve_curve.upper():
+                    sensor_type = " (VIB)"
+                else:
+                    sensor_type = ""
+
+                valve_name = f"CE Discharge {valve_num}{sensor_type}" if valve_num else f"CE Discharge{sensor_type}"
                 valve_curves.append({"name": valve_name, "curve": valve_curve})
 
             # Crank End Suction (.{i}CS1, .{i}CS2, .{i}CS3, ...)
@@ -1069,7 +1096,16 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                         valve_num += char
                     else:
                         break
-                valve_name = f"CE Suction {valve_num}" if valve_num else "CE Suction"
+
+                # FIXED: Add sensor type suffix to differentiate VIBRATION vs ULTRASONIC
+                if "ULTRASONIC" in valve_curve.upper():
+                    sensor_type = " (US)"
+                elif "VIBRATION" in valve_curve.upper():
+                    sensor_type = " (VIB)"
+                else:
+                    sensor_type = ""
+
+                valve_name = f"CE Suction {valve_num}{sensor_type}" if valve_num else f"CE Suction{sensor_type}"
                 valve_curves.append({"name": valve_name, "curve": valve_curve})
 
 
