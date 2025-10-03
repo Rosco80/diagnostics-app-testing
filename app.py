@@ -863,8 +863,12 @@ def load_all_curves_data(_curves_xml_content):
             return None, None
         num_data_columns = len(data[0])
         actual_columns = full_header_list[:num_data_columns]
-        df = pd.DataFrame(data, columns=actual_columns).apply(pd.to_numeric, errors='coerce').dropna()
+        # FIXED: Use dropna(how='all') to only drop rows where ALL values are NaN
+        # Also drop completely empty columns to clean up data
+        df = pd.DataFrame(data, columns=actual_columns).apply(pd.to_numeric, errors='coerce').dropna(how='all').dropna(axis=1, how='all')
         df.sort_values('Crank Angle', inplace=True)
+        # Update actual_columns to match the remaining columns after cleanup
+        actual_columns = df.columns.tolist()
         return df, actual_columns
     except Exception as e:
         st.error(f"Failed to load curves data: {e}")
