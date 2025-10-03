@@ -3117,27 +3117,29 @@ if validated_files:
                     st.subheader("Fault Labels")
                     for item in report_data:
                         if item['count'] > 0 and item['name'] != 'Pressure':
-                            with st.form(key=f"label_form_{analysis_ids[item['name']]}"):
+                            # FIXED: Use curve_name for unique keys instead of name
+                            curve_key = item['curve_name'].replace(' ', '_').replace('.', '_').replace('-', '_')
+                            with st.form(key=f"label_form_{curve_key}"):
                                 st.write(f"**{item['name']} Anomaly**")
-                                
+
                                 default_label = suggestions.get(item['name'], "Normal")
                                 if default_label in FAULT_LABELS:
                                     selected_label = st.selectbox(
                                         "Select fault label:",
                                         options=FAULT_LABELS,
                                         index=FAULT_LABELS.index(default_label),
-                                        key=f"sel_{analysis_ids[item['name']]}"
+                                        key=f"sel_{curve_key}"
                                     )
                                 else:
                                     selected_label = st.selectbox(
                                         "Select fault label:",
                                         options=FAULT_LABELS,
-                                        key=f"sel_{analysis_ids[item['name']]}"
+                                        key=f"sel_{curve_key}"
                                     )
 
                                 custom_label = st.text_input(
                                     "Or enter custom label if 'Other':",
-                                    key=f"txt_{analysis_ids[item['name']]}"
+                                    key=f"txt_{curve_key}"
                                 )
                                 if st.form_submit_button("Save Label"):
                                     final_label = custom_label if selected_label == "Other" and custom_label else selected_label
@@ -3151,17 +3153,19 @@ if validated_files:
                     st.subheader("Mark Valve Open/Close Events")
                     for item in report_data:
                         if item['name'] != 'Pressure':
-                            with st.form(key=f"valve_form_{analysis_ids[item['name']]}"):
+                            # FIXED: Use curve_name for unique keys instead of name
+                            curve_key = item['curve_name'].replace(' ', '_').replace('.', '_').replace('-', '_')
+                            with st.form(key=f"valve_form_{curve_key}"):
                                 st.write(f"**{item['name']} Valve Events:**")
                                 cols = st.columns(2)
-                                open_angle = cols[0].number_input("Open Angle", key=f"open_{analysis_ids[item['name']]}", value=None, format="%.2f")
-                                close_angle = cols[1].number_input("Close Angle", key=f"close_{analysis_ids[item['name']]}", value=None, format="%.2f")
+                                open_angle = cols[0].number_input("Open Angle", key=f"open_{curve_key}", value=None, format="%.2f")
+                                close_angle = cols[1].number_input("Close Angle", key=f"close_{curve_key}", value=None, format="%.2f")
                                 if st.form_submit_button(f"Save Events for {item['name']}"):
                                     # Clear existing valve events for this curve
                                     db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                                    if open_angle is not None: 
+                                    if open_angle is not None:
                                         db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], open_angle, 0.0, 'open'))
-                                    if close_angle is not None: 
+                                    if close_angle is not None:
                                         db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], close_angle, 0.0, 'close'))
                                     st.success(f"Events updated for {item['name']}.")
                                     st.rerun()
