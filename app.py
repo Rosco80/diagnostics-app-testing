@@ -1003,40 +1003,69 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
             pressure_curve = he_pressure or ce_pressure
             
 
-            # FIXED: Correct valve curve detection based on actual XML patterns
+            # FIXED: Detect ALL valves (not just valve #1)
             valve_curves = []
-            
-            # Head End Discharge (.{i}HD1)
-            he_discharge = next(
-                (c for c in all_curve_names if f".{i}HD1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
-                None
-            )
-            if he_discharge:
-                valve_curves.append({"name": "HE Discharge", "curve": he_discharge})
-            
-            # Head End Suction (.{i}HS1)
-            he_suction = next(
-                (c for c in all_curve_names if f".{i}HS1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
-                None
-            )
-            if he_suction:
-                valve_curves.append({"name": "HE Suction", "curve": he_suction})
-            
-            # Crank End Discharge (.{i}CD1)
-            ce_discharge = next(
-                (c for c in all_curve_names if f".{i}CD1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
-                None
-            )
-            if ce_discharge:
-                valve_curves.append({"name": "CE Discharge", "curve": ce_discharge})
-            
-            # Crank End Suction (.{i}CS1)
-            ce_suction = next(
-                (c for c in all_curve_names if f".{i}CS1" in c and ("VIBRATION" in c or "ULTRASONIC" in c)),
-                None
-            )
-            if ce_suction:
-                valve_curves.append({"name": "CE Suction", "curve": ce_suction})
+
+            # Head End Discharge (.{i}HD1, .{i}HD2, .{i}HD3, ...)
+            he_discharge_valves = [
+                c for c in all_curve_names
+                if f".{i}HD" in c and ("VIBRATION" in c or "ULTRASONIC" in c)
+            ]
+            for valve_curve in he_discharge_valves:
+                # Extract valve number (e.g., HD1 -> 1, HD2 -> 2)
+                valve_num = ""
+                for char in valve_curve.split(f".{i}HD")[1]:
+                    if char.isdigit():
+                        valve_num += char
+                    else:
+                        break
+                valve_name = f"HE Discharge {valve_num}" if valve_num else "HE Discharge"
+                valve_curves.append({"name": valve_name, "curve": valve_curve})
+
+            # Head End Suction (.{i}HS1, .{i}HS2, .{i}HS3, ...)
+            he_suction_valves = [
+                c for c in all_curve_names
+                if f".{i}HS" in c and ("VIBRATION" in c or "ULTRASONIC" in c)
+            ]
+            for valve_curve in he_suction_valves:
+                valve_num = ""
+                for char in valve_curve.split(f".{i}HS")[1]:
+                    if char.isdigit():
+                        valve_num += char
+                    else:
+                        break
+                valve_name = f"HE Suction {valve_num}" if valve_num else "HE Suction"
+                valve_curves.append({"name": valve_name, "curve": valve_curve})
+
+            # Crank End Discharge (.{i}CD1, .{i}CD2, .{i}CD3, ...)
+            ce_discharge_valves = [
+                c for c in all_curve_names
+                if f".{i}CD" in c and ("VIBRATION" in c or "ULTRASONIC" in c)
+            ]
+            for valve_curve in ce_discharge_valves:
+                valve_num = ""
+                for char in valve_curve.split(f".{i}CD")[1]:
+                    if char.isdigit():
+                        valve_num += char
+                    else:
+                        break
+                valve_name = f"CE Discharge {valve_num}" if valve_num else "CE Discharge"
+                valve_curves.append({"name": valve_name, "curve": valve_curve})
+
+            # Crank End Suction (.{i}CS1, .{i}CS2, .{i}CS3, ...)
+            ce_suction_valves = [
+                c for c in all_curve_names
+                if f".{i}CS" in c and ("VIBRATION" in c or "ULTRASONIC" in c)
+            ]
+            for valve_curve in ce_suction_valves:
+                valve_num = ""
+                for char in valve_curve.split(f".{i}CS")[1]:
+                    if char.isdigit():
+                        valve_num += char
+                    else:
+                        break
+                valve_name = f"CE Suction {valve_num}" if valve_num else "CE Suction"
+                valve_curves.append({"name": valve_name, "curve": valve_curve})
 
 
             # FIXED: More lenient condition - include cylinder if it has EITHER pressure OR valve data
