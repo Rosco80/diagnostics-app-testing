@@ -1952,16 +1952,32 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             volume_values = V.values
                             pressure_values = pressure_data.values
                             crank_angles = df['Crank Angle'].values
-                            
-                            # Find positions of min and max volume
-                            min_vol_pos = np.argmin(volume_values)
-                            max_vol_pos = np.argmax(volume_values)
-                            
-                            # Get crank angles and pressures for overlay markers
-                            tdc_crank_angle = crank_angles[min_vol_pos]  # X=Crank Angle
-                            bdc_crank_angle = crank_angles[max_vol_pos]  # X=Crank Angle
-                            tdc_pressure = pressure_values[min_vol_pos]  # Y=Pressure
-                            bdc_pressure = pressure_values[max_vol_pos]  # Y=Pressure
+
+                            # FIXED: Use PRESSURE-based detection instead of volume-based
+                            # Smooth pressure to avoid noise in peak detection
+                            window_size = min(20, len(pressure_values) // 10)
+                            if window_size > 3:
+                                # Create smoothed pressure using pandas rolling mean
+                                pressure_series = pd.Series(pressure_values)
+                                smoothed_pressure = pressure_series.rolling(window=window_size, center=True, min_periods=1).mean().values
+                            else:
+                                smoothed_pressure = pressure_values
+
+                            # TDC: Find where pressure is maximum (peak compression)
+                            tdc_pos = np.argmax(smoothed_pressure)
+
+                            # BDC: Find pressure minimum in first 60% of cycle (before peak compression)
+                            search_end = int(len(pressure_values) * 0.6)
+                            if search_end > 0:
+                                bdc_pos = np.argmin(smoothed_pressure[:search_end])
+                            else:
+                                bdc_pos = 0
+
+                            # Get crank angles and pressures for markers
+                            tdc_crank_angle = crank_angles[tdc_pos]  # X=Crank Angle
+                            bdc_crank_angle = crank_angles[bdc_pos]  # X=Crank Angle
+                            tdc_pressure = pressure_values[tdc_pos]  # Y=Pressure (use original, not smoothed)
+                            bdc_pressure = pressure_values[bdc_pos]  # Y=Pressure (use original, not smoothed)
                             
                             # Add TDC marker on crank-angle chart
                             fig.add_trace(
@@ -2012,14 +2028,14 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             fig.update_layout(
                                 annotations=fig.layout.annotations + (dict(
                                     x=0.02, y=0.98, xref="paper", yref="paper",
-                                    text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%",
+                                    text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%<br>TDC at {tdc_crank_angle:.1f}° | BDC at {bdc_crank_angle:.1f}°",
                                     showarrow=False, bgcolor="rgba(128,0,128,0.1)",
                                     bordercolor="purple", borderwidth=1,
                                     font=dict(size=9), align="left"
                                 ),)
                             )
-                            
-                            st.info("✅ P-V overlay active! Purple dotted line shows scaled volume, markers show TDC/BDC positions.")
+
+                            st.info(f"✅ P-V overlay active! TDC detected at {tdc_crank_angle:.1f}° (peak pressure), BDC at {bdc_crank_angle:.1f}° (min pressure).")
                         else:
                             st.warning("⚠️ Data length mismatch between volume, pressure, and DataFrame")
                         
