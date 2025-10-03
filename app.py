@@ -1902,6 +1902,16 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
     fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
     fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
 
+    # FIXED: Dynamic Y-axis range for valves based on offset and valve count
+    if len(valve_curves) > 0:
+        # Calculate total offset range needed
+        total_offset_range = len(valve_curves) * vertical_offset
+        # Add 20% padding above and below
+        y_max = total_offset_range * 1.2
+        y_min = -total_offset_range * 0.2
+        # Apply the calculated range to the secondary Y-axis (valves)
+        fig.update_yaxes(range=[y_min, y_max], secondary_y=True)
+
     # --- ADD P-V OVERLAY if requested ---
     if show_pv_overlay and view_mode == "Crank-angle" and can_plot_pv:
         try:
@@ -2708,9 +2718,25 @@ with st.sidebar:
     
     vertical_offset = st.slider(
         "Vertical Offset",
-        0.0, 5.0, 1.0, 0.1,
-        key='vertical_offset'
+        0.0, 50.0, 10.0, 1.0,
+        key='vertical_offset',
+        help="Spacing between valve curves. Increase for better separation when multiple valves are detected."
     )
+
+    # Show recommended offset based on number of valves
+    if st.session_state.analysis_results and st.session_state.get('selected_cylinder_name'):
+        discovered_config = st.session_state.analysis_results.get('discovered_config')
+        if discovered_config:
+            cylinders = discovered_config.get("cylinders", [])
+            selected_cyl_name = st.session_state.get('selected_cylinder_name', 'Cylinder 1')
+            selected_cyl = next((c for c in cylinders if c.get("cylinder_name") == selected_cyl_name), None)
+            if selected_cyl:
+                num_valves = len(selected_cyl.get('valve_vibration_curves', []))
+                if num_valves > 0:
+                    recommended_offset = max(10, num_valves * 3)
+                    if vertical_offset < recommended_offset * 0.7:
+                        st.info(f"💡 Tip: With {num_valves} valves detected, try offset ~{recommended_offset} for better separation")
+
     view_mode = st.radio(
         "View Mode",
         ["Crank-angle", "P-V"],
