@@ -2216,13 +2216,15 @@ def run_rule_based_diagnostics_enhanced(report_data, pressure_limit=10, valve_li
     he_valves = [item for item in report_data if 'HE' in item['name'] and item['name'] != 'Pressure']
     ce_valves = [item for item in report_data if 'CE' in item['name'] and item['name'] != 'Pressure']
 
-    # Check if most/all valves exceed threshold (≥80% threshold)
+    # Check if most/all valves exceed threshold (more conservative detection)
+    # Requires: 85% of valves with 2x threshold OR minimum 15 anomalies (whichever is higher)
     for valves, end_name in [(he_valves, 'Head End'), (ce_valves, 'Crank End')]:
         if len(valves) > 0:
-            high_anomaly_count = sum(1 for v in valves if v['count'] > valve_limit)
+            # Count valves with significant anomalies (2x limit OR min 15)
+            high_anomaly_count = sum(1 for v in valves if v['count'] > max(valve_limit * 2, 15))
             affected_percentage = (high_anomaly_count / len(valves)) * 100
 
-            if high_anomaly_count / len(valves) >= 0.8:  # 80% or more valves affected
+            if high_anomaly_count / len(valves) >= 0.85:  # 85% or more valves severely affected
                 critical_alerts.append(
                     f"CRITICAL: All valves on {end_name} affected ({affected_percentage:.0f}%) - cylinder-level failure suspected"
                 )
