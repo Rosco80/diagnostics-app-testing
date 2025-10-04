@@ -1623,7 +1623,7 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
         st.error(f"PDF generation failed: {str(e)}")
         return None
 
-def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False):
+def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False, amplitude_scale=1.0):
     """
     Generates cylinder view plots with pressure and valve vibration data.
     """
@@ -1812,8 +1812,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         color_rgba = f'rgba({colors[i][0]*255},{colors[i][1]*255},{colors[i][2]*255},0.4)'
 
         if envelope_view:
-            upper_bound = df[curve_name] + current_offset
-            lower_bound = -df[curve_name] + current_offset
+            upper_bound = (df[curve_name] * amplitude_scale) + current_offset
+            lower_bound = (-df[curve_name] * amplitude_scale) + current_offset
             fig.add_trace(
                 go.Scatter(
                     x=df['Crank Angle'],
@@ -1839,7 +1839,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 secondary_y=True
             )
         else:
-            vibration_data = df[curve_name] + current_offset
+            vibration_data = (df[curve_name] * amplitude_scale) + current_offset
             fig.add_trace(
                 go.Scatter(
                     x=df['Crank Angle'],
@@ -1854,7 +1854,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         # Add anomalies with confidence coloring
         anomalies_df = df[df[f'{curve_name}_anom']]
         if not anomalies_df.empty:
-            anomaly_vibration_data = anomalies_df[curve_name] + current_offset
+            anomaly_vibration_data = (anomalies_df[curve_name] * amplitude_scale) + current_offset
             fig.add_trace(
                 go.Scatter(
                     x=anomalies_df['Crank Angle'],
@@ -2210,7 +2210,24 @@ def run_rule_based_diagnostics_enhanced(report_data, pressure_limit=10, valve_li
                         suggestions[item_name] = 'Valve Wear'
                 else:
                     suggestions[item_name] = 'Valve Wear'
-    
+
+    # Check for "all valves leaking" condition (cylinder-level failure)
+    # Group valves by cylinder end
+    he_valves = [item for item in report_data if 'HE' in item['name'] and item['name'] != 'Pressure']
+    ce_valves = [item for item in report_data if 'CE' in item['name'] and item['name'] != 'Pressure']
+
+    # Check if most/all valves exceed threshold (≥80% threshold)
+    for valves, end_name in [(he_valves, 'Head End'), (ce_valves, 'Crank End')]:
+        if len(valves) > 0:
+            high_anomaly_count = sum(1 for v in valves if v['count'] > valve_limit)
+            affected_percentage = (high_anomaly_count / len(valves)) * 100
+
+            if high_anomaly_count / len(valves) >= 0.8:  # 80% or more valves affected
+                critical_alerts.append(
+                    f"CRITICAL: All valves on {end_name} affected ({affected_percentage:.0f}%) - cylinder-level failure suspected"
+                )
+                suggestions[f'All Valves - {end_name}'] = 'Cylinder-Level Failure (All Valves Affected)'
+
     return suggestions, critical_alerts
 
 def check_and_display_alerts(db_client, machine_id, cylinder_name, critical_alerts, health_score):
@@ -2780,6 +2797,13 @@ with st.sidebar:
         help="Spacing between valve curves. Increase for better separation when multiple valves are detected."
     )
 
+    amplitude_scale = st.slider(
+        "Valve Amplitude Scale",
+        0.1, 5.0, 1.0, 0.1,
+        key='amplitude_scale',
+        help="Scale valve vibration amplitude for better visibility (like dB zoom in analyzer)"
+    )
+
     # Show recommended offset based on number of valves
     if st.session_state.analysis_results and st.session_state.get('selected_cylinder_name'):
         discovered_config = st.session_state.analysis_results.get('discovered_config')
@@ -3031,7 +3055,7 @@ if validated_files:
                                 
             if selected_cylinder_config:
                 # Generate plot and initial data
-                fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
+                fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale)
     
                 
                 # Apply pressure options to the plot (NEW!)
@@ -3170,7 +3194,7 @@ if validated_files:
                     analysis_ids[item['name']] = analysis_id
 
                 # Regenerate plot with correct analysis_ids
-                fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay)
+                fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale)
                 
                 # Run rule-based diagnostics on the report data
                 suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
@@ -3194,7 +3218,72 @@ if validated_files:
                 health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
                 if not health_report_df.empty:
                     st.dataframe(health_report_df, use_container_width=True, hide_index=True)
-    
+
+                # Display valve details table
+                st.subheader("🔧 Valve Sensors Detected")
+                valve_curves = selected_cylinder_config.get('valve_vibration_curves', [])
+                if valve_curves:
+                    valve_data = []
+                    for valve_info in valve_curves:
+                        valve_name = valve_info['name']
+                        # Determine cylinder end
+                        if valve_name.startswith('HE'):
+                            cyl_end = f'{cylinder_index}H'
+                            end_order = 0  # HE comes first
+                        elif valve_name.startswith('CE'):
+                            cyl_end = f'{cylinder_index}C'
+                            end_order = 1  # CE comes second
+                        else:
+                            cyl_end = 'N/A'
+                            end_order = 2
+
+                        # Determine valve type
+                        if 'Discharge' in valve_name:
+                            valve_type = 'Discharge'
+                            type_order = 0  # Discharge first
+                        elif 'Suction' in valve_name:
+                            valve_type = 'Suction'
+                            type_order = 1  # Suction second
+                        else:
+                            valve_type = 'N/A'
+                            type_order = 2
+
+                        # Determine sensor type
+                        if '(VIB)' in valve_name:
+                            sensor_type = 'Vibration'
+                        elif '(US)' in valve_name:
+                            sensor_type = 'Ultrasonic'
+                        else:
+                            sensor_type = 'N/A'
+
+                        valve_data.append({
+                            'Cyl End': cyl_end,
+                            'Valve Type': valve_type,
+                            'Valve Name': valve_name,
+                            'Sensor Type': sensor_type,
+                            '_end_order': end_order,
+                            '_type_order': type_order
+                        })
+
+                    # Sort by cylinder end (HE first) then valve type (Discharge first)
+                    valve_data.sort(key=lambda x: (x['_end_order'], x['_type_order'], x['Valve Name']))
+
+                    # Remove sorting columns before displaying
+                    for item in valve_data:
+                        del item['_end_order']
+                        del item['_type_order']
+
+                    valve_df = pd.DataFrame(valve_data)
+
+                    # Count valves by end
+                    he_count = sum(1 for v in valve_data if 'H' in v['Cyl End'])
+                    ce_count = sum(1 for v in valve_data if 'C' in v['Cyl End'])
+
+                    st.info(f"**Detected {len(valve_curves)} valves** ({he_count} on Head End, {ce_count} on Crank End)")
+                    st.dataframe(valve_df, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No valve sensors detected for this cylinder")
+
                 # Labeling and event marking
                 with st.expander("Add labels and mark valve events"):
                     st.subheader("Fault Labels")
