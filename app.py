@@ -929,9 +929,9 @@ def extract_rpm_from_source(source_xml_content):
 
 
 @st.cache_data
-def auto_discover_configuration(_source_xml_content, all_curve_names):
+def auto_discover_configuration(source_xml_content, all_curve_names):
     try:
-        source_root = ET.fromstring(_source_xml_content)
+        source_root = ET.fromstring(source_xml_content)
 
         # Determine number of cylinders
         num_cyl_str = find_xml_value(
