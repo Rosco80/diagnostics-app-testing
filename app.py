@@ -851,9 +851,9 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
         return "N/A"
         
 @st.cache_data
-def load_all_curves_data(_curves_xml_content):
+def load_all_curves_data(curves_xml_content):
     try:
-        root = ET.fromstring(_curves_xml_content)
+        root = ET.fromstring(curves_xml_content)
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
         ws = next((ws for ws in root.findall('.//ss:Worksheet', NS) if ws.attrib.get('{urn:schemas-microsoft-com:office:spreadsheet}Name') == 'Curves'), None)
         if ws is None:
