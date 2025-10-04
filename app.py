@@ -1675,10 +1675,17 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 # Use numpy arrays for safer operations
                                 volume_values = V.values
                                 pressure_values = pressure_data.values
-                                
-                                # Find positions of min and max volume
-                                min_vol_pos = np.argmin(volume_values)
-                                max_vol_pos = np.argmax(volume_values)
+
+                                # Find positions of min and max volume (filter NaN)
+                                vol_valid_mask = ~np.isnan(volume_values)
+                                if vol_valid_mask.sum() > 0:
+                                    vol_valid_indices = np.where(vol_valid_mask)[0]
+                                    vol_valid_values = volume_values[vol_valid_mask]
+                                    min_vol_pos = vol_valid_indices[np.argmin(vol_valid_values)]
+                                    max_vol_pos = vol_valid_indices[np.argmax(vol_valid_values)]
+                                else:
+                                    min_vol_pos = 0
+                                    max_vol_pos = len(volume_values) - 1 if len(volume_values) > 0 else 0
                                 
                                 # Get the actual values for P-V plot (Volume on X-axis)
                                 min_vol = volume_values[min_vol_pos]
@@ -2005,12 +2012,26 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 smoothed_pressure = pressure_values
 
                             # TDC: Find where pressure is maximum (peak compression)
-                            tdc_pos = np.argmax(smoothed_pressure)
+                            # Filter out NaN values to avoid invalid positions
+                            valid_mask = ~np.isnan(smoothed_pressure)
+                            if valid_mask.sum() > 0:
+                                valid_indices = np.where(valid_mask)[0]
+                                valid_pressures = smoothed_pressure[valid_mask]
+                                tdc_pos = valid_indices[np.argmax(valid_pressures)]
+                            else:
+                                tdc_pos = 0
 
                             # BDC: Find pressure minimum in first 60% of cycle (before peak compression)
                             search_end = int(len(pressure_values) * 0.6)
                             if search_end > 0:
-                                bdc_pos = np.argmin(smoothed_pressure[:search_end])
+                                search_pressures = smoothed_pressure[:search_end]
+                                search_valid_mask = ~np.isnan(search_pressures)
+                                if search_valid_mask.sum() > 0:
+                                    search_valid_indices = np.where(search_valid_mask)[0]
+                                    search_valid_pressures = search_pressures[search_valid_mask]
+                                    bdc_pos = search_valid_indices[np.argmin(search_valid_pressures)]
+                                else:
+                                    bdc_pos = 0
                             else:
                                 bdc_pos = 0
 
