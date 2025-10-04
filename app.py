@@ -850,8 +850,8 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
     except Exception:
         return "N/A"
         
-@st.cache_data
 def load_all_curves_data(curves_xml_content):
+    """Load and parse curves data from XML content. Results are cached in session_state."""
     try:
         root = ET.fromstring(curves_xml_content)
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
