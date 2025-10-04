@@ -625,6 +625,11 @@ def enhanced_file_upload_section():
         col1, col2, col3 = st.columns([1, 3, 1])
         with col2:
             if st.button("🚀 Analyse", type="primary", use_container_width=True):
+                # FIXED: Clear old analysis results when new files are uploaded
+                st.session_state.analysis_results = None
+                st.session_state.active_session_id = None
+                if 'auto_discover_config' in st.session_state:
+                    del st.session_state['auto_discover_config']
                 st.session_state.validated_files = files_content
                 st.markdown('</div>', unsafe_allow_html=True)
                 return files_content
@@ -3260,17 +3265,16 @@ if validated_files:
                         st.download_button("📥 Download PDF Report", pdf_buffer, f"report_{machine_id}_{selected_cylinder_name}.pdf", "application/pdf", key='download_report')
                         
 
-                
+
                 st.markdown("---")
-                # Machine Info Block
-                cfg = st.session_state.get('auto_discover_config', {})
+                # Machine Info Block - FIXED: Use current discovered_config instead of cached session state
                 st.markdown(f"""
                 <div style='border:1px solid #ddd;border-radius:6px;padding:10px;margin:8px 0;'>
-                  <strong>Machine ID:</strong> {cfg.get('machine_id','N/A')} &nbsp;|&nbsp;
-                  <strong>Model:</strong> {cfg.get('model','N/A')} &nbsp;|&nbsp;
-                  <strong>Serial:</strong> {cfg.get('serial_number','N/A')} &nbsp;|&nbsp;
-                  <strong>Rated RPM:</strong> {cfg.get('rated_rpm','N/A')} &nbsp;|&nbsp;
-                  <strong>Rated HP:</strong> {cfg.get('rated_hp','N/A')}
+                  <strong>Machine ID:</strong> {discovered_config.get('machine_id','N/A')} &nbsp;|&nbsp;
+                  <strong>Model:</strong> {discovered_config.get('model','N/A')} &nbsp;|&nbsp;
+                  <strong>Serial:</strong> {discovered_config.get('serial_number','N/A')} &nbsp;|&nbsp;
+                  <strong>Rated RPM:</strong> {discovered_config.get('rated_rpm','N/A')} &nbsp;|&nbsp;
+                  <strong>Rated HP:</strong> {discovered_config.get('rated_hp','N/A')}
                 </div>
                 """, unsafe_allow_html=True)
                 st.header("🔧 All Cylinder Details")
