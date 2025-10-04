@@ -18,6 +18,7 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import MinMaxScaler
 import plotly.express as px
 import math
+import hashlib
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -409,7 +410,13 @@ def extract_preview_info(files_content):
             try:
                 curves_content = files_content.get('curves', '')
                 if curves_content:
-                    df, curve_names = load_all_curves_data(curves_content)
+                    # Compute hash and store content
+                    curves_hash = hashlib.md5(curves_content.encode()).hexdigest()
+                    if 'xml_content_cache' not in st.session_state:
+                        st.session_state.xml_content_cache = {}
+                    st.session_state.xml_content_cache[curves_hash] = curves_content
+
+                    df, curve_names = load_all_curves_data(curves_hash)
                     if df is not None and curve_names:
                         config = auto_discover_configuration(files_content['source'], curve_names)
                         if config and 'cylinders' in config:
@@ -850,8 +857,18 @@ def find_xml_value(root, sheet_name, partial_key, col_offset, occurrence=1):
     except Exception:
         return "N/A"
         
-def load_all_curves_data(curves_xml_content):
-    """Load and parse curves data from XML content. Results are cached in session_state."""
+@st.cache_data
+def load_all_curves_data(curves_xml_hash):
+    """Load and parse curves data from XML content. Uses hash for caching."""
+    # Retrieve actual XML content from session state using hash
+    if 'xml_content_cache' not in st.session_state:
+        st.session_state.xml_content_cache = {}
+
+    curves_xml_content = st.session_state.xml_content_cache.get(curves_xml_hash)
+    if not curves_xml_content:
+        st.error("XML content not found in cache")
+        return None, None
+
     try:
         root = ET.fromstring(curves_xml_content)
         NS = {'ss': 'urn:schemas-microsoft-com:office:spreadsheet'}
@@ -3035,7 +3052,13 @@ if validated_files:
         # Only run heavy analysis if not already done
         if st.session_state.analysis_results is None:
             with st.spinner("🔄 Processing data..."):
-                df, actual_curve_names = load_all_curves_data(files_content['curves'])
+                # Compute hash and store content for caching
+                curves_hash = hashlib.md5(files_content['curves'].encode()).hexdigest()
+                if 'xml_content_cache' not in st.session_state:
+                    st.session_state.xml_content_cache = {}
+                st.session_state.xml_content_cache[curves_hash] = files_content['curves']
+
+                df, actual_curve_names = load_all_curves_data(curves_hash)
                 if df is not None:
                     discovered_config = auto_discover_configuration(files_content['source'], actual_curve_names)
                     if discovered_config:
