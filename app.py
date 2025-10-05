@@ -1812,6 +1812,25 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             secondary_y=False
         )
 
+        # DEBUG: Show detailed pressure statistics
+        st.info("📊 PRESSURE DATA DEBUG:")
+        st.info(f"  • Curve name: {pressure_curve}")
+        st.info(f"  • Min: {df[pressure_curve].min():.2f} PSI")
+        st.info(f"  • Max: {df[pressure_curve].max():.2f} PSI")
+        st.info(f"  • Mean: {df[pressure_curve].mean():.2f} PSI")
+        st.info(f"  • Median: {df[pressure_curve].median():.2f} PSI")
+        st.info(f"  • Data points: {len(df[pressure_curve])}")
+
+        # Show sample values
+        st.info(f"  • First 5 values: {df[pressure_curve].head(5).tolist()}")
+        st.info(f"  • Last 5 values: {df[pressure_curve].tail(5).tolist()}")
+
+        # Check for anomalies
+        negative_count = (df[pressure_curve] < 0).sum()
+        st.info(f"  • Negative pressure values: {negative_count} out of {len(df[pressure_curve])}")
+        nan_count = df[pressure_curve].isna().sum()
+        st.info(f"  • NaN values: {nan_count}")
+
     # Add valve vibration curves
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
     current_offset = 0
