@@ -1670,7 +1670,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             marker=dict(size=2),
                             name="P-V Cycle",
                             hovertemplate="<b>Volume:</b> %{x:.1f} in³<br>" +
-                                        "<b>Pressure:</b> %{y:.1f} PSI<br>" +
+                                        "<b>Pressure:</b> %{y:.1f} PSIG<br>" +
                                         "<extra></extra>"
                         ))
                         
@@ -1728,7 +1728,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 )
                                 
                                 # Debug info for P-V diagram
-                                st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSI), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSI)")
+                                st.info(f"🔍 TDC at {min_vol:.1f} in³ ({min_pressure:.1f} PSIG), BDC at {max_vol:.1f} in³ ({max_pressure:.1f} PSIG)")
                             else:
                                 st.warning("⚠️ Volume and pressure data length mismatch or empty data")
                     
@@ -1750,7 +1750,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 yaxis=dict(gridcolor='#444444', zerolinecolor='#666666')
                             )
                             fig.update_xaxes(title_text="<b>Volume (in³)</b>", color='white')
-                            fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color='white')
+                            fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color='white')
                         else:
                             fig.update_layout(
                                 height=700,
@@ -1760,7 +1760,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 showlegend=True
                             )
                             fig.update_xaxes(title_text="<b>Volume (in³)</b>")
-                            fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
+                            fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>")
                 
                         # Add pressure data to report_data
                         if pressure_curve in df.columns:
@@ -1771,7 +1771,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 "curve_name": pressure_curve,
                                 "threshold": avg_score,
                                 "count": anomaly_count,
-                                "unit": "PSI"
+                                "unit": "PSIG"
                             })
                 
                         return fig, report_data
@@ -1838,7 +1838,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             "curve_name": pressure_curve,
             "threshold": avg_score,
             "count": anomaly_count,
-            "unit": "PSI"
+            "unit": "PSIG"
         })
         # Set pressure line color based on theme
         pressure_color = 'white' if dark_theme else 'black'
@@ -1846,7 +1846,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             go.Scatter(
                 x=df['Crank Angle'],
                 y=df[pressure_curve],
-                name='Pressure (PSI)',
+                name='Pressure (PSIG)',
                 line=dict(color=pressure_color, width=2)
             ),
             secondary_y=False
@@ -2000,7 +2000,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
             yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666')
         )
-        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="white", secondary_y=False)
+        fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="white", secondary_y=False)
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="cyan", secondary_y=True)
     else:
         fig.update_layout(
@@ -2010,7 +2010,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             template="ggplot2",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
-        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
+        fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="black", secondary_y=False)
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
 
     # FIXED: Dynamic Y-axis range for valves based on offset and valve count
@@ -2122,11 +2122,11 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                         line=dict(width=2, color='darkred')
                                     ),
                                     name='TDC',
-                                    hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                                    hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
                                 ),
                                 secondary_y=False
                             )
-                            
+
                             # Add BDC marker on crank-angle chart
                             fig.add_trace(
                                 go.Scatter(
@@ -2137,7 +2137,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                         line=dict(width=2, color='darkblue')
                                     ),
                                     name='BDC',
-                                    hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSI<extra></extra>"
+                                    hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
                                 ),
                                 secondary_y=False
                             )
