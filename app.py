@@ -2552,42 +2552,42 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
     Returns ✅ or ❌ for each signal based on the actual time-series data quality
     """
     validation_results = {}
-    
-    # FIXED: Check CE PT trace using actual time-series data from df (CURVES.xml)
+
+    # FIXED: Check CE PT trace using cylinder_config (works for all cylinders)
     if pressure_options.get('show_ce_pt', False):
-        # Look for CE pressure columns in the actual DataFrame
-        ce_columns = [col for col in df.columns if '.1C.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
-        
-        if ce_columns and len(ce_columns) > 0:
-            ce_pressure_data = df[ce_columns[0]]  # Use the actual time-series data
-            
+        # Get CE pressure curve from cylinder_config
+        ce_pressure_curve = cylinder_config.get('ce_pressure_curve')
+
+        if ce_pressure_curve and ce_pressure_curve in df.columns:
+            ce_pressure_data = df[ce_pressure_curve]  # Use the actual time-series data
+
             # Quality checks on the actual time-series data
             has_data = len(ce_pressure_data) > 0
             no_all_zeros = not (ce_pressure_data == 0).all()
             has_variation = ce_pressure_data.std() > 1.0  # Some variation in the data
-            reasonable_range = (ce_pressure_data.min() >= 0) and (ce_pressure_data.max() < 10000)  # Broader range
+            reasonable_range = (ce_pressure_data.min() >= -500) and (ce_pressure_data.max() < 10000)  # Allow negative (suction)
             no_excessive_spikes = (ce_pressure_data.std() < 2000)  # Not too erratic
-            
+
             is_valid = has_data and no_all_zeros and has_variation and reasonable_range and no_excessive_spikes
             validation_results['CE PT trace'] = "✅" if is_valid else "❌"
         else:
             validation_results['CE PT trace'] = "❌"  # No CE data found in time-series
-    
-    # FIXED: Check HE PT trace using actual time-series data from df (CURVES.xml)
+
+    # FIXED: Check HE PT trace using cylinder_config (works for all cylinders)
     if pressure_options.get('show_he_pt', False):
-        # Look for HE pressure columns in the actual DataFrame
-        he_columns = [col for col in df.columns if '.1H.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
-        
-        if he_columns and len(he_columns) > 0:
-            he_pressure_data = df[he_columns[0]]  # Use the actual time-series data
-            
+        # Get HE pressure curve from cylinder_config
+        he_pressure_curve = cylinder_config.get('he_pressure_curve')
+
+        if he_pressure_curve and he_pressure_curve in df.columns:
+            he_pressure_data = df[he_pressure_curve]  # Use the actual time-series data
+
             # Same quality checks as CE but on actual time-series data
             has_data = len(he_pressure_data) > 0
             no_all_zeros = not (he_pressure_data == 0).all()
-            has_variation = he_pressure_data.std() > 1.0  # Some variation in the data  
-            reasonable_range = (he_pressure_data.min() >= 0) and (he_pressure_data.max() < 10000)  # Broader range
+            has_variation = he_pressure_data.std() > 1.0  # Some variation in the data
+            reasonable_range = (he_pressure_data.min() >= -500) and (he_pressure_data.max() < 10000)  # Allow negative (suction)
             no_excessive_spikes = (he_pressure_data.std() < 2000)  # Not too erratic
-            
+
             is_valid = has_data and no_all_zeros and has_variation and reasonable_range and no_excessive_spikes
             validation_results['HE PT trace'] = "✅" if is_valid else "❌"
         else:
@@ -2951,44 +2951,7 @@ with st.sidebar:
 
     # Add pressure options here
     pressure_options = render_pressure_options_sidebar()
-    if pressure_options['enable_pressure'] and st.session_state.analysis_results is not None:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("### 📊 Signal Validation Status")
-        st.sidebar.markdown("*Signal quality indicators*")
-        
-        # Get current analysis results
-        df = st.session_state.analysis_results['df']
-        discovered_config = st.session_state.analysis_results['discovered_config']
-        
-        
-        # Get current cylinder selection - MATCH THE SELECTED CYLINDER
-        cylinders = discovered_config.get("cylinders", [])
-        if cylinders:
-            # FIXED: Use the actually selected cylinder, not always cylinder[0]
-            selected_cylinder_name = st.session_state.get('selected_cylinder_name', 'Cylinder 1')
-    
-            # Find the config for the currently selected cylinder
-            cylinder_config = next(
-                (c for c in cylinders if c.get("cylinder_name") == selected_cylinder_name), 
-                cylinders[0]  # Fallback to first cylinder
-            )
-    
-            st.sidebar.write(f"🔧 Validating signals for: {cylinder_config.get('cylinder_name', 'Unknown')}")    
-            
-            # Run signal validation
-            validation_status = validate_pressure_signals(df, cylinder_config, pressure_options)
-            
-            # Display validation results in a clean format
-            if validation_status:
-                for signal_name, status in validation_status.items():
-                    if status == "✅":
-                        st.sidebar.success(f"{status} {signal_name}")
-                    else:
-                        st.sidebar.error(f"{status} {signal_name}")
-            else:
-                st.sidebar.info("No pressure signals selected for validation")
 
-    
     clearance_pct = st.number_input(
         "Clearance (%)",
         min_value=0.0,
@@ -3159,7 +3122,28 @@ if validated_files:
             with st.sidebar:
                 selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-                                
+                # Signal Validation Status - moved here to use the correct selected cylinder
+                if pressure_options['enable_pressure'] and selected_cylinder_config:
+                    st.sidebar.markdown("---")
+                    st.sidebar.markdown("### 📊 Signal Validation Status")
+                    st.sidebar.markdown("*Signal quality indicators*")
+
+                    st.sidebar.write(f"🔧 Validating signals for: {selected_cylinder_config.get('cylinder_name', 'Unknown')}")
+
+                    # Run signal validation
+                    validation_status = validate_pressure_signals(df, selected_cylinder_config, pressure_options)
+
+                    # Display validation results in a clean format
+                    if validation_status:
+                        for signal_name, status in validation_status.items():
+                            if status == "✅":
+                                st.sidebar.success(f"{status} {signal_name}")
+                            else:
+                                st.sidebar.error(f"{status} {signal_name}")
+                    else:
+                        st.sidebar.info("No pressure signals selected for validation")
+
+
             if selected_cylinder_config:
                 # Generate plot and initial data
                 fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale, dark_theme=dark_theme)
