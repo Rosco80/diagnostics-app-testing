@@ -1837,34 +1837,17 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             "count": anomaly_count,
             "unit": "PSI"
         })
+        # Set pressure line color based on theme
+        pressure_color = 'white' if dark_theme else 'black'
         fig.add_trace(
             go.Scatter(
                 x=df['Crank Angle'],
                 y=df[pressure_curve],
                 name='Pressure (PSI)',
-                line=dict(color='black', width=2)
+                line=dict(color=pressure_color, width=2)
             ),
             secondary_y=False
         )
-
-        # DEBUG: Show detailed pressure statistics
-        st.info("📊 PRESSURE DATA DEBUG:")
-        st.info(f"  • Curve name: {pressure_curve}")
-        st.info(f"  • Min: {df[pressure_curve].min():.2f} PSI")
-        st.info(f"  • Max: {df[pressure_curve].max():.2f} PSI")
-        st.info(f"  • Mean: {df[pressure_curve].mean():.2f} PSI")
-        st.info(f"  • Median: {df[pressure_curve].median():.2f} PSI")
-        st.info(f"  • Data points: {len(df[pressure_curve])}")
-
-        # Show sample values
-        st.info(f"  • First 5 values: {df[pressure_curve].head(5).tolist()}")
-        st.info(f"  • Last 5 values: {df[pressure_curve].tail(5).tolist()}")
-
-        # Check for anomalies
-        negative_count = (df[pressure_curve] < 0).sum()
-        st.info(f"  • Negative pressure values: {negative_count} out of {len(df[pressure_curve])}")
-        nan_count = df[pressure_curve].isna().sum()
-        st.info(f"  • NaN values: {nan_count}")
 
     # Add valve vibration curves
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
@@ -2157,17 +2140,18 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             )
                             
                             # Add annotations on crank-angle chart
+                            annotation_bg = "rgba(0,0,0,0.8)" if dark_theme else "rgba(255,255,255,0.8)"
                             fig.add_annotation(
                                 x=tdc_crank_angle, y=tdc_pressure,
                                 text="TDC", showarrow=True, arrowhead=2, ax=30, ay=-30,
-                                bgcolor="rgba(255,255,255,0.8)", bordercolor="red",
+                                bgcolor=annotation_bg, bordercolor="red",
                                 font=dict(color="red", size=10)
                             )
-                            
+
                             fig.add_annotation(
                                 x=bdc_crank_angle, y=bdc_pressure,
                                 text="BDC", showarrow=True, arrowhead=2, ax=-30, ay=30,
-                                bgcolor="rgba(255,255,255,0.8)", bordercolor="blue",
+                                bgcolor=annotation_bg, bordercolor="blue",
                                 font=dict(color="blue", size=10)
                             )
                             
