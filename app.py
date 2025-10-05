@@ -1625,7 +1625,7 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
         st.error(f"PDF generation failed: {str(e)}")
         return None
 
-def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False, amplitude_scale=1.0):
+def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False, amplitude_scale=1.0, dark_theme=False):
     """
     Generates cylinder view plots with pressure and valve vibration data.
     """
@@ -1732,15 +1732,32 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         except Exception as e:
                             st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
                 
-                        fig.update_layout(
-                            height=700,
-                            title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
-                            template="plotly_white",
-                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                            showlegend=True
-                        )
-                        fig.update_xaxes(title_text="<b>Volume (in³)</b>")
-                        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
+                        # Apply dark theme or default theme for P-V diagram
+                        if dark_theme:
+                            fig.update_layout(
+                                height=700,
+                                title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
+                                template="plotly_dark",
+                                plot_bgcolor='black',
+                                paper_bgcolor='black',
+                                font=dict(color='white'),
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='white')),
+                                showlegend=True,
+                                xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
+                                yaxis=dict(gridcolor='#444444', zerolinecolor='#666666')
+                            )
+                            fig.update_xaxes(title_text="<b>Volume (in³)</b>", color='white')
+                            fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color='white')
+                        else:
+                            fig.update_layout(
+                                height=700,
+                                title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
+                                template="plotly_white",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                                showlegend=True
+                            )
+                            fig.update_xaxes(title_text="<b>Volume (in³)</b>")
+                            fig.update_yaxes(title_text="<b>Pressure (PSI)</b>")
                 
                         # Add pressure data to report_data
                         if pressure_curve in df.columns:
@@ -1775,17 +1792,35 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         # Return empty figure and report data if P-V plot fails
         if 'fig' not in locals():
             fig = go.Figure()
-            fig.update_layout(
-                height=700,
-                title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')} (Error)",
-                template="plotly_white"
-            )
-            fig.add_annotation(
-                text="Unable to generate P-V diagram",
-                xref="paper", yref="paper",
-                x=0.5, y=0.5,
-                showarrow=False
-            )
+            # Apply dark theme or default theme for error P-V diagram
+            if dark_theme:
+                fig.update_layout(
+                    height=700,
+                    title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')} (Error)",
+                    template="plotly_dark",
+                    plot_bgcolor='black',
+                    paper_bgcolor='black',
+                    font=dict(color='white')
+                )
+                fig.add_annotation(
+                    text="Unable to generate P-V diagram",
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5,
+                    showarrow=False,
+                    font=dict(color='white', size=16)
+                )
+            else:
+                fig.update_layout(
+                    height=700,
+                    title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')} (Error)",
+                    template="plotly_white"
+                )
+                fig.add_annotation(
+                    text="Unable to generate P-V diagram",
+                    xref="paper", yref="paper",
+                    x=0.5, y=0.5,
+                    showarrow=False
+                )
         return fig, report_data
 
     # --- Crank-angle mode OR Dual view mode ---
@@ -1964,15 +1999,33 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
 
     # Set up layout
     title_suffix = " with P-V Overlay" if show_pv_overlay else ""
-    fig.update_layout(
-        height=700,
-        title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
-        xaxis_title="Crank Angle (deg)",
-        template="ggplot2",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-    )
-    fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
-    fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
+    # Apply dark theme or default theme
+    if dark_theme:
+        fig.update_layout(
+            height=700,
+            title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
+            xaxis_title="Crank Angle (deg)",
+            template="plotly_dark",
+            plot_bgcolor='black',
+            paper_bgcolor='black',
+            font=dict(color='white'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color='white')),
+            xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
+            yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
+            yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666')
+        )
+        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="white", secondary_y=False)
+        fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="cyan", secondary_y=True)
+    else:
+        fig.update_layout(
+            height=700,
+            title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
+            xaxis_title="Crank Angle (deg)",
+            template="ggplot2",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        fig.update_yaxes(title_text="<b>Pressure (PSI)</b>", color="black", secondary_y=False)
+        fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
 
     # FIXED: Dynamic Y-axis range for valves based on offset and valve count
     if len(valve_curves) > 0:
@@ -2860,6 +2913,14 @@ with st.sidebar:
         help="Scale valve vibration amplitude for better visibility (like dB zoom in analyzer)"
     )
 
+    # Black background theme toggle
+    dark_theme = st.checkbox(
+        "Black Background Theme",
+        value=False,
+        key='dark_theme',
+        help="Use black background like traditional analyzer display"
+    )
+
     # Show recommended offset based on number of valves
     if st.session_state.analysis_results and st.session_state.get('selected_cylinder_name'):
         discovered_config = st.session_state.analysis_results.get('discovered_config')
@@ -3111,7 +3172,7 @@ if validated_files:
                                 
             if selected_cylinder_config:
                 # Generate plot and initial data
-                fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale)
+                fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale, dark_theme=dark_theme)
     
                 
                 # Apply pressure options to the plot (NEW!)
@@ -3250,7 +3311,7 @@ if validated_files:
                     analysis_ids[item['name']] = analysis_id
 
                 # Regenerate plot with correct analysis_ids
-                fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale)
+                fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale, dark_theme=dark_theme)
                 
                 # Run rule-based diagnostics on the report data
                 suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
