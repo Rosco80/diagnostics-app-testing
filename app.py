@@ -1676,13 +1676,16 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 volume_values = V.values
                                 pressure_values = pressure_data.values
 
-                                # Find positions of min and max volume (filter NaN)
+                                # Find positions of min and max volume (filter NaN from BOTH volume and pressure)
                                 vol_valid_mask = ~np.isnan(volume_values)
-                                if vol_valid_mask.sum() > 0:
-                                    vol_valid_indices = np.where(vol_valid_mask)[0]
-                                    vol_valid_values = volume_values[vol_valid_mask]
-                                    min_vol_pos = vol_valid_indices[np.argmin(vol_valid_values)]
-                                    max_vol_pos = vol_valid_indices[np.argmax(vol_valid_values)]
+                                pressure_valid_mask = ~np.isnan(pressure_values)
+                                combined_valid_mask = vol_valid_mask & pressure_valid_mask
+
+                                if combined_valid_mask.sum() > 0:
+                                    valid_indices = np.where(combined_valid_mask)[0]
+                                    valid_volumes = volume_values[combined_valid_mask]
+                                    min_vol_pos = valid_indices[np.argmin(valid_volumes)]
+                                    max_vol_pos = valid_indices[np.argmax(valid_volumes)]
                                 else:
                                     min_vol_pos = 0
                                     max_vol_pos = len(volume_values) - 1 if len(volume_values) > 0 else 0
@@ -1806,8 +1809,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             ),
             secondary_y=False
         )
-        # DEBUG: Log actual pressure values
-        st.info(f"🔍 DEBUG - Pressure stats: Min={df[pressure_curve].min():.1f}, Max={df[pressure_curve].max():.1f}, Mean={df[pressure_curve].mean():.1f}")
 
     # Add valve vibration curves
     colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
@@ -2003,11 +2004,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             pressure_values = pressure_data.values
                             crank_angles = df['Crank Angle'].values
 
-                            # DEBUG: Check for NaN in raw data
-                            st.info(f"🔍 DEBUG TDC - Pressure: {np.isnan(pressure_values).sum()} NaNs out of {len(pressure_values)}")
-                            st.info(f"🔍 DEBUG TDC - Crank Angles: {np.isnan(crank_angles).sum()} NaNs out of {len(crank_angles)}")
-                            st.info(f"🔍 DEBUG TDC - Volume: {np.isnan(volume_values).sum()} NaNs out of {len(volume_values)}")
-
                             # FIXED: Use PRESSURE-based detection instead of volume-based
                             # Smooth pressure to avoid noise in peak detection
                             window_size = min(20, len(pressure_values) // 10)
@@ -2018,12 +2014,12 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             else:
                                 smoothed_pressure = pressure_values
 
-                            # DEBUG: Check smoothed pressure
-                            st.info(f"🔍 DEBUG - Smoothed pressure: {np.isnan(smoothed_pressure).sum()} NaNs, Min={np.nanmin(smoothed_pressure):.1f}, Max={np.nanmax(smoothed_pressure):.1f}")
-
                             # TDC: Find where pressure is maximum (peak compression)
-                            # Filter out NaN values to avoid invalid positions
-                            valid_mask = ~np.isnan(smoothed_pressure)
+                            # Filter positions where BOTH crank_angles AND pressure are valid
+                            valid_crank_mask = ~np.isnan(crank_angles)
+                            valid_pressure_mask = ~np.isnan(smoothed_pressure)
+                            valid_mask = valid_crank_mask & valid_pressure_mask  # Both must be valid
+
                             if valid_mask.sum() > 0:
                                 valid_indices = np.where(valid_mask)[0]
                                 valid_pressures = smoothed_pressure[valid_mask]
@@ -2031,14 +2027,16 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             else:
                                 tdc_pos = 0
 
-                            # DEBUG: Check TDC calculation
-                            st.info(f"🔍 DEBUG - TDC pos={tdc_pos}, crank_angle={crank_angles[tdc_pos]}, pressure={pressure_values[tdc_pos]:.1f}")
-
                             # BDC: Find pressure minimum in first 60% of cycle (before peak compression)
                             search_end = int(len(pressure_values) * 0.6)
                             if search_end > 0:
                                 search_pressures = smoothed_pressure[:search_end]
-                                search_valid_mask = ~np.isnan(search_pressures)
+                                search_crank_angles = crank_angles[:search_end]
+                                # Filter where BOTH crank angles AND pressure are valid
+                                search_crank_valid = ~np.isnan(search_crank_angles)
+                                search_pressure_valid = ~np.isnan(search_pressures)
+                                search_valid_mask = search_crank_valid & search_pressure_valid
+
                                 if search_valid_mask.sum() > 0:
                                     search_valid_indices = np.where(search_valid_mask)[0]
                                     search_valid_pressures = search_pressures[search_valid_mask]
