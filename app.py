@@ -1010,10 +1010,11 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
                 (c for c in all_curve_names if f".{i}C." in c and ("STATIC" in c or "SPECIAL" in c) and "COMPRESSOR PT" in c),
                 None
             )
-            
-            # Prefer Head End, fall back to Crank End
+
+            # Store both HE and CE pressure curves (for dual trace support)
+            # Keep legacy pressure_curve for backward compatibility (prefer HE, fall back to CE)
             pressure_curve = he_pressure or ce_pressure
-            
+
 
             # FIXED: Detect ALL valves (not just valve #1)
             valve_curves = []
@@ -1131,7 +1132,9 @@ def auto_discover_configuration(_source_xml_content, all_curve_names):
 
                 cylinder_config = {
                     "cylinder_name": f"Cylinder {i}",
-                    "pressure_curve": pressure_curve,
+                    "pressure_curve": pressure_curve,  # Legacy field (for backward compatibility)
+                    "he_pressure_curve": he_pressure,  # Head End pressure curve
+                    "ce_pressure_curve": ce_pressure,  # Crank End pressure curve
                     "valve_vibration_curves": valve_curves,
                     "bore": bore,
                     "rod_diameter": rod_dia,
@@ -1625,7 +1628,7 @@ def generate_pdf_report(machine_id, rpm, cylinder_name, report_data, health_repo
         st.error(f"PDF generation failed: {str(e)}")
         return None
 
-def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False, amplitude_scale=1.0, dark_theme=False):
+def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode="Crank-angle", clearance_pct=5.0, show_pv_overlay=False, amplitude_scale=1.0, dark_theme=False, pressure_options=None):
     """
     Generates cylinder view plots with pressure and valve vibration data.
     """
@@ -2618,7 +2621,10 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
     """
     if not pressure_options['enable_pressure']:
         return fig
-    
+
+    # Extract cylinder name from cylinder_config for error messages
+    cylinder_name = cylinder_config.get('cylinder_name', 'Cylinder 1')
+
     # Color scheme for different traces
     colors = {
         'he_pt': 'blue',
@@ -2630,26 +2636,26 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
         'he_terminal': 'navy',
         'ce_terminal': 'maroon'
     }
-    
-        
+
+
     # FIXED: Show CE (Crank End) pressure trace - ADD to existing plot, don't replace
     if pressure_options['show_ce_pt']:
-        # Look for CE pressure columns directly in DataFrame
-        ce_columns = [col for col in df.columns if '.1C.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
-        
-        if ce_columns:
-            ce_pressure_col = ce_columns[0]
-            
+        # Use cylinder_config to get CE pressure curve directly
+        ce_pressure_curve = cylinder_config.get('ce_pressure_curve')
+
+        if ce_pressure_curve and ce_pressure_curve in df.columns:
+            ce_pressure_col = ce_pressure_curve
+
             # Check if we already added this trace to avoid duplicates
             existing_ce_traces = [trace.name for trace in fig.data if trace.name and 'CE PT trace' in trace.name]
-            
+
             if not existing_ce_traces:  # Only add if not already present
                 # Apply period selection processing
                 processed_pressure = process_pressure_by_period(df, ce_pressure_col, pressure_options.get('period_selection', 'Median'))
-            
+
                 if processed_pressure is not None:
                     trace_name = f"CE PT trace ({pressure_options.get('period_selection', 'Median')})"
-                    
+
                     fig.add_trace(
                         go.Scatter(
                             x=df['Crank Angle'],
@@ -2666,26 +2672,26 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
             else:
                 st.sidebar.info("CE PT trace already exists")
         else:
-            st.sidebar.error("❌ No CE pressure column found in DataFrame")
+            st.sidebar.error(f"❌ No CE pressure curve found for {cylinder_name}")
     
     # FIXED: Show HE (Head End) pressure trace - ADD to existing plot, don't replace
     if pressure_options['show_he_pt']:
-        # Look for HE pressure columns directly in DataFrame  
-        he_columns = [col for col in df.columns if '.1H.' in col and ('STATIC' in col or 'SPECIAL' in col) and 'COMPRESSOR PT' in col]
-        
-        if he_columns:
-            he_pressure_col = he_columns[0]
-            
+        # Use cylinder_config to get HE pressure curve directly
+        he_pressure_curve = cylinder_config.get('he_pressure_curve')
+
+        if he_pressure_curve and he_pressure_curve in df.columns:
+            he_pressure_col = he_pressure_curve
+
             # Check if we already added this trace to avoid duplicates
             existing_he_traces = [trace.name for trace in fig.data if trace.name and 'HE PT trace' in trace.name]
-            
+
             if not existing_he_traces:  # Only add if not already present
                 # Apply period selection processing
                 processed_he_pressure = process_pressure_by_period(df, he_pressure_col, pressure_options.get('period_selection', 'Median'))
-            
+
                 if processed_he_pressure is not None:
                     trace_name = f"HE PT trace ({pressure_options.get('period_selection', 'Median')})"
-                    
+
                     fig.add_trace(
                         go.Scatter(
                             x=df['Crank Angle'],
@@ -2702,7 +2708,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
             else:
                 st.sidebar.info("HE PT trace already exists")
         else:
-            st.sidebar.error("❌ No HE pressure column found in DataFrame")
+            st.sidebar.error(f"❌ No HE pressure curve found for {cylinder_name}")
     
     # Keep existing CE Theoretical logic (THIS WORKS - DON'T CHANGE)
     if pressure_options['show_ce_theoretical']:
