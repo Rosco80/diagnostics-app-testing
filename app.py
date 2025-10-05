@@ -487,6 +487,7 @@ def enhanced_file_upload_section():
                         del st.session_state.validated_files
                     if 'analysis_results' in st.session_state:
                         st.session_state.analysis_results = None
+                    st.cache_data.clear()  # Clear Streamlit cache to load fresh data
                     st.rerun()
         
         return files_content
@@ -507,6 +508,7 @@ def enhanced_file_upload_section():
             del st.session_state.validated_files
         if 'analysis_results' in st.session_state:
             st.session_state.analysis_results = None
+        st.cache_data.clear()  # Clear Streamlit cache to load fresh data
         st.rerun()
 
     if uploaded_files:
@@ -2816,6 +2818,7 @@ with st.sidebar:
             st.session_state.active_session_id = None
             if 'auto_discover_config' in st.session_state:
                 del st.session_state['auto_discover_config']
+            st.cache_data.clear()  # Clear Streamlit cache to load fresh data
             st.rerun()
 
     st.header("2. View Options")
