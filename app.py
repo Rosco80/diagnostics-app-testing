@@ -2502,17 +2502,8 @@ def render_pressure_options_sidebar():
         # Pressure Traces Section
         st.sidebar.markdown("**Pressure Traces:**")
         pressure_options['show_he_pt'] = st.sidebar.checkbox("Show HE PT trace", key='show_he_pt')
-        pressure_options['show_he_theoretical'] = st.sidebar.checkbox("Show HE Theoretical", key='show_he_theoretical')
         pressure_options['show_ce_pt'] = st.sidebar.checkbox("Show CE PT trace", value=True, key='show_ce_pt')
-        pressure_options['show_ce_theoretical'] = st.sidebar.checkbox("Show CE Theoretical", key='show_ce_theoretical')
-        
-        # Additional Pressures Section  
-        st.sidebar.markdown("**Additional Pressures:**")
-        pressure_options['show_he_nozzle'] = st.sidebar.checkbox("Show HE Nozzle pressure", key='show_he_nozzle')
-        pressure_options['show_ce_nozzle'] = st.sidebar.checkbox("Show CE Nozzle pressure", key='show_ce_nozzle')
-        pressure_options['show_he_terminal'] = st.sidebar.checkbox("Show HE Terminal pressure", key='show_he_terminal')
-        pressure_options['show_ce_terminal'] = st.sidebar.checkbox("Show CE Terminal pressure", key='show_ce_terminal')
-        
+
         # Period Selection
         st.sidebar.markdown("**Pressure Period Selection:**")
         period_options = [
@@ -2533,13 +2524,7 @@ def render_pressure_options_sidebar():
         # Set all options to False if pressure analysis is disabled
         pressure_options.update({
             'show_he_pt': False,
-            'show_he_theoretical': False, 
             'show_ce_pt': False,
-            'show_ce_theoretical': False,
-            'show_he_nozzle': False,
-            'show_ce_nozzle': False,
-            'show_he_terminal': False,
-            'show_ce_terminal': False,
             'period_selection': "Median",
             'use_crc_data': False
         })
@@ -2592,27 +2577,7 @@ def validate_pressure_signals(df, cylinder_config, pressure_options):
             validation_results['HE PT trace'] = "✅" if is_valid else "❌"
         else:
             validation_results['HE PT trace'] = "❌"  # No HE data found in time-series
-    
-    # Check CE Theoretical (this always works since it's generated)
-    if pressure_options.get('show_ce_theoretical', False):
-        validation_results['CE Theoretical'] = "✅"
-    
-    # Check HE Theoretical (this always works since it's generated)
-    if pressure_options.get('show_he_theoretical', False):
-        validation_results['HE Theoretical'] = "✅"
-    
-    # Check additional pressure traces (currently not available)
-    additional_checks = [
-        ('show_ce_nozzle', 'CE Nozzle pressure'),
-        ('show_he_nozzle', 'HE Nozzle pressure'), 
-        ('show_ce_terminal', 'CE Terminal pressure'),
-        ('show_he_terminal', 'HE Terminal pressure')
-    ]
-    
-    for option_key, display_name in additional_checks:
-        if pressure_options.get(option_key, False):
-            validation_results[display_name] = "❌"  # Currently no data available for these
-    
+
     return validation_results
 
 def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, files_content):
@@ -2709,85 +2674,7 @@ def apply_pressure_options_to_plot(fig, df, cylinder_config, pressure_options, f
                 st.sidebar.info("HE PT trace already exists")
         else:
             st.sidebar.error(f"❌ No HE pressure curve found for {cylinder_name}")
-    
-    # Keep existing CE Theoretical logic (THIS WORKS - DON'T CHANGE)
-    if pressure_options['show_ce_theoretical']:
-        try:
-            import numpy as np
-            
-            theta_rad = np.deg2rad(df['Crank Angle'])
-            suction_pressure = 690.0
-            discharge_pressure = 1550.0
-            pressure_amplitude = (discharge_pressure - suction_pressure) / 2
-            pressure_baseline = suction_pressure + pressure_amplitude
-            theoretical_ce = pressure_baseline + pressure_amplitude * np.sin(theta_rad)
-            
-            # Check if CE Theoretical already exists
-            existing_ce_theoretical = [trace.name for trace in fig.data if trace.name and 'CE Theoretical' in trace.name]
-            
-            if not existing_ce_theoretical:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['Crank Angle'],
-                        y=theoretical_ce,
-                        name='CE Theoretical (Test)',
-                        line=dict(color=colors['ce_theoretical'], width=2, dash='dash'),
-                        mode='lines'
-                    ),
-                    secondary_y=False
-                )
-                st.sidebar.success("✅ Added CE Theoretical")
-            else:
-                st.sidebar.info("CE Theoretical already exists")
-        except Exception as e:
-            st.sidebar.error(f"❌ CE Theoretical failed: {str(e)}")
-    
-    # Add HE Theoretical  
-    if pressure_options['show_he_theoretical']:
-        try:
-            import numpy as np
-            
-            theta_rad = np.deg2rad(df['Crank Angle'])
-            # Use slightly different values for HE to distinguish from CE
-            suction_pressure = 680.0
-            discharge_pressure = 1520.0
-            pressure_amplitude = (discharge_pressure - suction_pressure) / 2
-            pressure_baseline = suction_pressure + pressure_amplitude
-            theoretical_he = pressure_baseline + pressure_amplitude * np.cos(theta_rad + np.pi/6)  # Phase shift
-            
-            # Check if HE Theoretical already exists
-            existing_he_theoretical = [trace.name for trace in fig.data if trace.name and 'HE Theoretical' in trace.name]
-            
-            if not existing_he_theoretical:
-                fig.add_trace(
-                    go.Scatter(
-                        x=df['Crank Angle'],
-                        y=theoretical_he,
-                        name='HE Theoretical',
-                        line=dict(color=colors['he_theoretical'], width=3, dash='dash'),
-                        mode='lines'
-                    ),
-                    secondary_y=False
-                )
-                st.sidebar.success("✅ Added HE Theoretical")
-            else:
-                st.sidebar.info("HE Theoretical already exists")
-        except Exception as e:
-            st.sidebar.error(f"❌ HE Theoretical failed: {str(e)}")
-    
-    # Additional pressure traces (keep existing - these show info messages)
-    if pressure_options['show_ce_nozzle']:
-        st.sidebar.info("CE Nozzle pressure data not available in current dataset")
-    
-    if pressure_options['show_he_nozzle']:
-        st.sidebar.info("HE Nozzle pressure data not available in current dataset")
-        
-    if pressure_options['show_ce_terminal']:
-        st.sidebar.info("CE Terminal pressure data not available in current dataset")
-        
-    if pressure_options['show_he_terminal']:
-        st.sidebar.info("HE Terminal pressure data not available in current dataset")
-    
+
     return fig
 
 def process_pressure_by_period(df, pressure_curve, period_selection, rpm=600):
@@ -3166,20 +3053,35 @@ if validated_files:
                         if isinstance(tag, dict):
                             angle = tag['angle']
                             fault_type = tag['fault_classification']
-                            annotation_text = f"{fault_type}: {angle:.1f}°"
+                            curve_name = tag.get('curve_name', '')
+                            # Include curve name if available
+                            if curve_name and curve_name != 'Unknown':
+                                annotation_text = f"{curve_name}: {fault_type} @ {angle:.1f}°"
+                            else:
+                                annotation_text = f"{fault_type}: {angle:.1f}°"
                         else:
                             # Handle legacy tags (just angles)
                             angle = tag
                             annotation_text = f"Tagged: {angle:.1f}°"
-                        
+
                         fig.add_vline(x=angle, line_dash="dash", line_color="red", line_width=2,
                                      annotation_text=annotation_text, annotation_position="top")
                     
                     # Handle pending tag classification
                     if st.session_state.pending_tag is not None:
                         st.markdown("#### 🏷️ Classify Your Tag")
-                        st.info(f"You clicked at crank angle: **{st.session_state.pending_tag:.2f}°**")
-                        
+
+                        # Handle both old (float) and new (dict) formats
+                        if isinstance(st.session_state.pending_tag, dict):
+                            pending_angle = st.session_state.pending_tag['angle']
+                            pending_curve = st.session_state.pending_tag.get('curve_name', 'Unknown')
+                            st.info(f"You clicked **{pending_curve}** at crank angle: **{pending_angle:.2f}°**")
+                        else:
+                            # Legacy format (just angle)
+                            pending_angle = st.session_state.pending_tag
+                            pending_curve = 'Unknown'
+                            st.info(f"You clicked at crank angle: **{pending_angle:.2f}°**")
+
                         col1, col2 = st.columns([3, 1])
                         with col1:
                             selected_fault_type = st.selectbox(
@@ -3193,14 +3095,15 @@ if validated_files:
                                 # Add the classified tag
                                 if plot_key not in st.session_state.valve_event_tags:
                                     st.session_state.valve_event_tags[plot_key] = []
-                                
+
                                 new_tag = {
-                                    'angle': st.session_state.pending_tag,
-                                    'fault_classification': selected_fault_type
+                                    'angle': pending_angle,
+                                    'fault_classification': selected_fault_type,
+                                    'curve_name': pending_curve
                                 }
                                 st.session_state.valve_event_tags[plot_key].append(new_tag)
                                 st.session_state.pending_tag = None
-                                st.success(f"✅ Tagged as '{selected_fault_type}' at {new_tag['angle']:.2f}°")
+                                st.success(f"✅ Tagged **{pending_curve}** as '{selected_fault_type}' at {pending_angle:.2f}°")
                                 st.rerun()
                             
                             if st.button("❌ Cancel", key="cancel_tag"):
@@ -3221,9 +3124,19 @@ if validated_files:
                         if clicked_data.selection.get('points'):
                             for point in clicked_data.selection['points']:
                                 clicked_x = point.get('x')
+                                curve_number = point.get('curve_number')
+
+                                # Get the curve name from the trace
+                                curve_name = None
+                                if curve_number is not None and curve_number < len(fig.data):
+                                    curve_name = fig.data[curve_number].name
+
                                 if clicked_x is not None and st.session_state.pending_tag is None:
-                                    # Set pending tag for classification
-                                    st.session_state.pending_tag = clicked_x
+                                    # Set pending tag for classification with curve name
+                                    st.session_state.pending_tag = {
+                                        'angle': clicked_x,
+                                        'curve_name': curve_name
+                                    }
                                     st.rerun()
                     
                     # Show current tags and save options
@@ -3233,7 +3146,8 @@ if validated_files:
                         with tags_col1:
                             for i, tag in enumerate(existing_tags):
                                 if isinstance(tag, dict):
-                                    st.write(f"• **{tag['fault_classification']}** at {tag['angle']:.2f}°")
+                                    curve_name = tag.get('curve_name', 'Unknown curve')
+                                    st.write(f"• **{curve_name}**: {tag['fault_classification']} at {tag['angle']:.2f}°")
                                 else:
                                     # Handle legacy tags
                                     st.write(f"• Legacy tag: {tag:.2f}°")
