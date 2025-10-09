@@ -7,7 +7,6 @@ import xml.etree.ElementTree as ET
 import re
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import io
 import datetime
 import time
@@ -46,17 +45,7 @@ FAULT_LABELS = [
 ]
 
 # Tagging-specific fault classifications (aligned with supervised learning goals)
-TAG_FAULT_TYPES = [
-    "Leaking valves",
-    "Worn piston rings", 
-    "Rod loading issues",
-    "Valve timing problems",
-    "Intercooler fouling",
-    "Pressure anomaly",
-    "Vibration spike",
-    "Noise event",
-    "Other fault"
-]
+TAG_FAULT_TYPES = FAULT_LABELS
 try:
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
@@ -807,9 +796,9 @@ def compute_health_score(report_data, diagnostics):
     score = 100
     # Subtract one point per anomaly detected
     for item in report_data:
-        score -= item['count'] * 0.5
+        score -= item['count'] * 0.2
     # Subtract an additional five points per diagnostic rule triggered
-    score -= 2 * len(diagnostics)
+    score -= 5 * len(diagnostics)
     # Keep the score within 0–100
     return max(min(score, 100), 0)
     
@@ -1853,7 +1842,23 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         )
 
     # Add valve vibration curves
-    colors = plt.cm.viridis(np.linspace(0, 1, len(valve_curves)))
+    # Custom high-contrast, colorblind-friendly palette
+    distinct_colors = [
+        (0.12, 0.47, 0.71),  # Dark Blue
+        (1.0, 0.50, 0.05),   # Orange
+        (0.17, 0.63, 0.17),  # Green
+        (0.84, 0.15, 0.16),  # Red
+        (0.58, 0.40, 0.74),  # Purple
+        (0.09, 0.75, 0.81),  # Cyan
+        (0.89, 0.47, 0.76),  # Pink
+        (0.74, 0.74, 0.13),  # Yellow-Green
+        (0.55, 0.34, 0.29),  # Brown
+        (0.84, 0.20, 0.65),  # Magenta
+        (0.0, 0.55, 0.55),   # Teal
+        (0.50, 0.50, 0.50),  # Gray
+    ]
+    # Cycle through colors if more valves than colors
+    colors = [distinct_colors[i % len(distinct_colors)] for i in range(len(valve_curves))]
     current_offset = 0
 
     for i, vc in enumerate(valve_curves):
@@ -2243,7 +2248,7 @@ def render_ai_model_tuning_section(db_client, discovered_config):
             )
             
             # Save button
-            if st.button("💾 Save Machine Config", type="primary"):
+            if st.button("💾 Save Configuration", type="primary"):
                 try:
                     db_client.execute(
                         "INSERT OR REPLACE INTO configs (machine_id, contamination, pressure_anom_limit, valve_anom_limit, updated_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
@@ -3214,7 +3219,9 @@ if validated_files:
                     fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
 
                 # Display the regenerated plot with valve events (replaces the earlier plot)
-                st.plotly_chart(fig, use_container_width=True, key=f"updated_plot_{selected_cylinder_name}")
+                # Only display if NOT in interactive tagging mode (which already displayed the plot above)
+                if not (interactive_tagging and view_mode == "Crank-angle"):
+                    st.plotly_chart(fig, use_container_width=True, key=f"updated_plot_{selected_cylinder_name}")
 
                 # Run rule-based diagnostics on the report data
                 suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
