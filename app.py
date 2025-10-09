@@ -2203,12 +2203,13 @@ def render_ai_model_tuning_section(db_client, discovered_config):
     
     if machine_id and machine_id != 'N/A':
         st.markdown(f"**Machine-Specific Configuration** for `{machine_id}`")
-        
+
         # Load existing config from database
         try:
             rs = db_client.execute("SELECT * FROM configs WHERE machine_id = ?", (machine_id,))
             existing_config = rs.rows[0] if rs.rows else None
-        except Exception:
+        except Exception as e:
+            st.warning(f"⚠️ Could not load saved configuration: {str(e)}")
             existing_config = None
         
         # Configuration inputs with saved values
