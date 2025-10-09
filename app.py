@@ -1951,21 +1951,21 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
-                        # Clean visualization: colored dotted lines matching valve color
-                        # Annotations shown on hover only (via hovertemplate)
+                        # Clean visualization: colored triangles at valve's vertical position
+                        # Annotations shown on hover only
                         for event_type, crank_angle in events.items():
                             # Use marker symbol instead of annotation
                             marker_symbol = "triangle-up" if event_type == 'open' else "triangle-down"
                             fig.add_trace(
                                 go.Scatter(
                                     x=[crank_angle],
-                                    y=[0],  # Bottom of plot
+                                    y=[current_offset],  # Position at valve's vertical offset
                                     mode='markers',
                                     marker=dict(
                                         symbol=marker_symbol,
-                                        size=12,
+                                        size=18,  # Bigger markers
                                         color=color_rgba.replace('0.4','1'),
-                                        line=dict(width=1, color='white')
+                                        line=dict(width=2, color='white')
                                     ),
                                     name=f"{label_name} {event_type.capitalize()}",
                                     showlegend=False,
