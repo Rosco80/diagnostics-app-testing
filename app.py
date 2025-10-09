@@ -1968,7 +1968,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                             )
                     # No warning needed when no valve events exist - this is normal
             except Exception as e:
-                st.warning(f"Could not load valve events for {vc['name']}: {e}")
+                pass  # Silently skip if valve events can't be loaded
         
         # Add anomaly data to report
         anomaly_count = int(df[f'{curve_name}_anom'].sum())
@@ -3338,14 +3338,17 @@ if validated_files:
                                 open_angle = cols[0].number_input("Open Angle", key=f"open_{curve_key}", value=None, format="%.2f")
                                 close_angle = cols[1].number_input("Close Angle", key=f"close_{curve_key}", value=None, format="%.2f")
                                 if st.form_submit_button(f"Save Events for {item['name']}"):
-                                    # Clear existing valve events for this curve
-                                    db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                                    if open_angle is not None:
-                                        db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], open_angle, 0.0, 'open'))
-                                    if close_angle is not None:
-                                        db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], close_angle, 0.0, 'close'))
-                                    st.success(f"Events updated for {item['name']}.")
-                                    st.rerun()
+                                    try:
+                                        # Clear existing valve events for this curve
+                                        db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
+                                        if open_angle is not None:
+                                            db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], open_angle, 0.0, 'open'))
+                                        if close_angle is not None:
+                                            db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], close_angle, 0.0, 'close'))
+                                        st.success(f"Events updated for {item['name']}.")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Failed to save events: {str(e)}")
 
                 # Export and Cylinder Details
                                     
