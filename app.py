@@ -1948,13 +1948,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         (session_id, cylinder_name, curve_name)
                     ).rows
 
-                    # DEBUG: Show what we're querying
-                    st.sidebar.info(f"Querying valve events: session={session_id}, cyl={cylinder_name}, curve={curve_name[:20]}... Found {len(events_raw)} events")
-
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
-                        st.sidebar.success(f"Drawing valve events: {events}")
                         if 'open' in events and 'close' in events:
                             fig.add_vrect(
                                 x0=events['open'],
@@ -1963,7 +1959,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 layer="below",
                                 line_width=0
                             )
-                            st.sidebar.success(f"✅ Added shaded region from {events['open']} to {events['close']}")
                         for event_type, crank_angle in events.items():
                             fig.add_vline(
                                 x=crank_angle,
@@ -1971,7 +1966,6 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 line_dash="dash",
                                 line_color='green' if event_type == 'open' else 'red'
                             )
-                            st.sidebar.success(f"✅ Added {event_type} line at {crank_angle}°")
                     # No warning needed when no valve events exist - this is normal
             except Exception:
                 pass  # Silently skip if valve events can't be loaded
@@ -3204,9 +3198,16 @@ if validated_files:
                         analysis_id = get_last_row_id(db_client)
                     analysis_ids[item['name']] = analysis_id
 
-                # Regenerate plot with correct analysis_ids
+                # Regenerate plot with correct analysis_ids (THIS PLOT HAS VALVE EVENTS!)
                 fig, report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, analysis_ids, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale, dark_theme=dark_theme)
-                
+
+                # Apply pressure options to the regenerated plot
+                if view_mode == "Crank-angle":
+                    fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
+
+                # Display the regenerated plot with valve events (replaces the earlier plot)
+                st.plotly_chart(fig, use_container_width=True, key=f"updated_plot_{selected_cylinder_name}")
+
                 # Run rule-based diagnostics on the report data
                 suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
                 
