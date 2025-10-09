@@ -1945,7 +1945,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     # Query valve events for this curve
                     events_raw = _db_client.execute(
                         "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
-                        (session_id, cylinder_name, vc['name'])
+                        (session_id, cylinder_name, curve_name)
                     ).rows
 
                     # Only process events if we have data
