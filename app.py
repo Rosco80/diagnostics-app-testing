@@ -1967,7 +1967,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 line_color='green' if event_type == 'open' else 'red'
                             )
                     # No warning needed when no valve events exist - this is normal
-            except Exception as e:
+            except Exception:
                 pass  # Silently skip if valve events can't be loaded
         
         # Add anomaly data to report
