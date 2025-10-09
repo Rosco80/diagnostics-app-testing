@@ -1948,6 +1948,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         (session_id, cylinder_name, curve_name)
                     ).rows
 
+                    # DEBUG: Show what we're querying
+                    st.sidebar.info(f"Querying valve events: session={session_id}, cyl={cylinder_name}, curve={curve_name[:20]}... Found {len(events_raw)} events")
+
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
