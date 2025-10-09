@@ -1951,17 +1951,27 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
-                        # Option 3: Clean visualization with thin lines + annotations
+                        # Clean visualization: colored dotted lines matching valve color
+                        # Annotations shown on hover only (via hovertemplate)
                         for event_type, crank_angle in events.items():
-                            fig.add_vline(
-                                x=crank_angle,
-                                line_width=1,  # Thinner line
-                                line_dash="dot",  # Dotted style
-                                line_color=color_rgba.replace('0.4','0.8'),  # Match valve color, more opaque
-                                annotation_text=f"{label_name} {event_type.capitalize()}",
-                                annotation_position="top",
-                                annotation_font_size=9,
-                                annotation_font_color=color_rgba.replace('0.4','1')
+                            # Use marker symbol instead of annotation
+                            marker_symbol = "triangle-up" if event_type == 'open' else "triangle-down"
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=[crank_angle],
+                                    y=[0],  # Bottom of plot
+                                    mode='markers',
+                                    marker=dict(
+                                        symbol=marker_symbol,
+                                        size=12,
+                                        color=color_rgba.replace('0.4','1'),
+                                        line=dict(width=1, color='white')
+                                    ),
+                                    name=f"{label_name} {event_type.capitalize()}",
+                                    showlegend=False,
+                                    hovertemplate=f"<b>{label_name}</b><br>{event_type.capitalize()}: {crank_angle}°<extra></extra>",
+                                ),
+                                secondary_y=True
                             )
                     # No warning needed when no valve events exist - this is normal
             except Exception:
