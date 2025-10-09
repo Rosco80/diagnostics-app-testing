@@ -1954,6 +1954,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
+                        st.sidebar.success(f"Drawing valve events: {events}")
                         if 'open' in events and 'close' in events:
                             fig.add_vrect(
                                 x0=events['open'],
@@ -1962,6 +1963,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 layer="below",
                                 line_width=0
                             )
+                            st.sidebar.success(f"✅ Added shaded region from {events['open']} to {events['close']}")
                         for event_type, crank_angle in events.items():
                             fig.add_vline(
                                 x=crank_angle,
@@ -1969,6 +1971,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 line_dash="dash",
                                 line_color='green' if event_type == 'open' else 'red'
                             )
+                            st.sidebar.success(f"✅ Added {event_type} line at {crank_angle}°")
                     # No warning needed when no valve events exist - this is normal
             except Exception:
                 pass  # Silently skip if valve events can't be loaded
