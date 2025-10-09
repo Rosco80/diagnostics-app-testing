@@ -1951,20 +1951,17 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     # Only process events if we have data
                     if events_raw:
                         events = {etype: angle for etype, angle in events_raw}
-                        if 'open' in events and 'close' in events:
-                            fig.add_vrect(
-                                x0=events['open'],
-                                x1=events['close'],
-                                fillcolor=color_rgba.replace('0.4','0.2'),
-                                layer="below",
-                                line_width=0
-                            )
+                        # Option 3: Clean visualization with thin lines + annotations
                         for event_type, crank_angle in events.items():
                             fig.add_vline(
                                 x=crank_angle,
-                                line_width=2,
-                                line_dash="dash",
-                                line_color='green' if event_type == 'open' else 'red'
+                                line_width=1,  # Thinner line
+                                line_dash="dot",  # Dotted style
+                                line_color=color_rgba.replace('0.4','0.8'),  # Match valve color, more opaque
+                                annotation_text=f"{label_name} {event_type.capitalize()}",
+                                annotation_position="top",
+                                annotation_font_size=9,
+                                annotation_font_color=color_rgba.replace('0.4','1')
                             )
                     # No warning needed when no valve events exist - this is normal
             except Exception:
@@ -3182,9 +3179,9 @@ if validated_files:
                             if st.button("🗑️ Clear Tags", key="clear_tags"):
                                 st.session_state.valve_event_tags[plot_key] = []
                                 st.rerun()
-                else:
-                    st.plotly_chart(fig, use_container_width=True)
-                
+                # else:
+                #     st.plotly_chart(fig, use_container_width=True)  # REMOVED: Duplicate plot without valve events
+
                 # Create or update analysis records in DB
                 analysis_ids = {}
                 for item in temp_report_data:
@@ -3334,28 +3331,73 @@ if validated_files:
                                         )
                                         st.success(f"Label '{final_label}' saved for {item['name']}.")
 
-                    st.subheader("Mark Valve Open/Close Events")
-                    for item in report_data:
-                        if item['name'] != 'Pressure':
-                            # FIXED: Use curve_name for unique keys instead of name
-                            curve_key = item['curve_name'].replace(' ', '_').replace('.', '_').replace('-', '_')
-                            with st.form(key=f"valve_form_{curve_key}"):
-                                st.write(f"**{item['name']} Valve Events:**")
-                                cols = st.columns(2)
-                                open_angle = cols[0].number_input("Open Angle", key=f"open_{curve_key}", value=None, format="%.2f")
-                                close_angle = cols[1].number_input("Close Angle", key=f"close_{curve_key}", value=None, format="%.2f")
-                                if st.form_submit_button(f"Save Events for {item['name']}"):
-                                    try:
-                                        # Clear existing valve events for this curve
-                                        db_client.execute("DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
-                                        if open_angle is not None:
-                                            db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], open_angle, 0.0, 'open'))
-                                        if close_angle is not None:
-                                            db_client.execute("INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], close_angle, 0.0, 'close'))
-                                        st.success(f"Events updated for {item['name']}.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Failed to save events: {str(e)}")
+                    with st.expander("⚙️ Configure Valve Open/Close Events", expanded=False):
+                        st.info("💡 Set valve timing for each curve. Values are in crank angle degrees.")
+
+                        # Load existing valve events from database
+                        valve_data = {}
+                        for item in report_data:
+                            if item['name'] != 'Pressure':
+                                events_rs = db_client.execute(
+                                    "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
+                                    (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'])
+                                )
+                                events = {e[0]: e[1] for e in events_rs.rows}
+                                valve_data[item['name']] = {
+                                    'curve_name': item['curve_name'],
+                                    'open': events.get('open'),
+                                    'close': events.get('close')
+                                }
+
+                        # Single form for all valves
+                        with st.form("all_valve_events"):
+                            st.markdown("**Valve Timing Configuration**")
+                            for valve_name, data in valve_data.items():
+                                cols = st.columns([3, 2, 2])
+                                cols[0].write(f"**{valve_name}**")
+                                open_val = cols[1].number_input(
+                                    "Open°",
+                                    value=data['open'],
+                                    key=f"open_{valve_name}",
+                                    format="%.2f",
+                                    help="Valve opening angle"
+                                )
+                                close_val = cols[2].number_input(
+                                    "Close°",
+                                    value=data['close'],
+                                    key=f"close_{valve_name}",
+                                    format="%.2f",
+                                    help="Valve closing angle"
+                                )
+                                valve_data[valve_name]['open_input'] = open_val
+                                valve_data[valve_name]['close_input'] = close_val
+
+                            if st.form_submit_button("💾 Save All Valve Events", type="primary"):
+                                try:
+                                    saved_count = 0
+                                    for valve_name, data in valve_data.items():
+                                        # Clear existing events
+                                        db_client.execute(
+                                            "DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
+                                            (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'])
+                                        )
+                                        # Save new events
+                                        if data['open_input'] is not None:
+                                            db_client.execute(
+                                                "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                                (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['open_input'], 0.0, 'open')
+                                            )
+                                            saved_count += 1
+                                        if data['close_input'] is not None:
+                                            db_client.execute(
+                                                "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                                (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['close_input'], 0.0, 'close')
+                                            )
+                                            saved_count += 1
+                                    st.success(f"✅ Saved {saved_count} valve events successfully!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Failed to save valve events: {str(e)}")
 
                 # Export and Cylinder Details
                                     
