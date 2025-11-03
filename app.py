@@ -440,12 +440,16 @@ def enhanced_file_upload_section():
 
     # Check if we already have validated files in session state
     if 'validated_files' in st.session_state and st.session_state.validated_files:
+        st.write("🐛 DEBUG: Found validated_files in session_state")
         st.success("✅ Files already loaded and validated!")
 
         files_content = st.session_state.validated_files
+        st.write(f"🐛 files_content type: {type(files_content)}")
+        st.write(f"🐛 files_content keys: {files_content.keys() if hasattr(files_content, 'keys') else 'not a dict'}")
 
         # Handle .wrpm vs XML preview differently
         if files_content.get('is_wrpm'):
+            st.write("🐛 DEBUG: Detected .wrpm in session state")
             # .wrpm file preview
             st.markdown("""
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
@@ -594,12 +598,23 @@ def enhanced_file_upload_section():
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
                 if st.button("🚀 Analyse", type="primary", use_container_width=True):
+                    # DEBUG
+                    st.write("🐛 DEBUG: Analyse button clicked for .wrpm file")
+                    st.write(f"🐛 files_content keys: {files_content.keys()}")
+                    st.write(f"🐛 is_wrpm: {files_content.get('is_wrpm')}")
+                    st.write(f"🐛 machine_id: {files_content.get('machine_id')}")
+                    st.write(f"🐛 curve_names count: {len(files_content.get('curve_names', []))}")
+                    st.write(f"🐛 df shape: {files_content.get('df').shape if files_content.get('df') is not None else 'None'}")
+
                     # Clear old analysis results when new files are uploaded
                     st.session_state.analysis_results = None
                     st.session_state.active_session_id = None
                     if 'auto_discover_config' in st.session_state:
                         del st.session_state['auto_discover_config']
                     st.session_state.validated_files = files_content
+
+                    st.write("🐛 DEBUG: Stored in session_state.validated_files")
+                    st.write("🐛 DEBUG: About to return files_content and trigger rerun")
                     return files_content
 
             return None
@@ -3210,12 +3225,21 @@ def render_action_buttons():
 
 
 
+st.write("🐛 DEBUG: Main analysis section")
+st.write(f"🐛 validated_files exists: {validated_files is not None}")
+if validated_files:
+    st.write(f"🐛 validated_files keys: {validated_files.keys()}")
+    st.write(f"🐛 is_wrpm check: {validated_files.get('is_wrpm')}")
+
 if validated_files:
     files_content = validated_files
 
     # Handle .wrpm files
     if files_content.get('is_wrpm'):
+        st.write("🐛 DEBUG: Detected .wrpm file in main section")
+        st.write(f"🐛 analysis_results is None: {st.session_state.analysis_results is None}")
         if st.session_state.analysis_results is None:
+            st.write("🐛 DEBUG: Starting .wrpm data processing...")
             with st.spinner("🔄 Processing .wrpm data..."):
                 df = files_content['df']
                 curve_names = files_content['curve_names']
