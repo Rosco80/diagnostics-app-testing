@@ -954,19 +954,30 @@ def parse_wrpm_file(wrpm_file, manual_rpm=300):
             sensor_names = []
             if 'D6_MACHINE.DAT' in file_list:
                 d6machine_content = zip_ref.read('D6_MACHINE.DAT').decode('utf-8', errors='ignore')
-                # Extract sensor names using regex pattern from docs
-                sensor_pattern = r'"([A-Z0-9\s]+(?:HE|CE|HEAD|CRANK|SUCTION|DISCHARGE|FRAME)[^"]*)"'
-                sensor_names = re.findall(sensor_pattern, d6machine_content)
+                # Extract sensor names - look for lines with common sensor keywords
+                # Pattern matches lines like "Comp 1 H Pressure", "Ambient Temperature", etc.
+                sensor_pattern = r'(?:^|\n)([A-Za-z0-9 ]+(?:Pressure|Temperature|Temp|Trace|Nozzle|Head|Crank)[A-Za-z0-9 ]*)'
+                matches = re.findall(sensor_pattern, d6machine_content, re.MULTILINE)
+                # Clean up sensor names (remove extra whitespace)
+                sensor_names = [' '.join(m.strip().split()) for m in matches if m.strip()]
+
+                # Remove duplicates while preserving order
+                seen = set()
+                sensor_names = [x for x in sensor_names if not (x in seen or seen.add(x))]
 
             if not sensor_names:
                 st.warning("No sensors found in D6_MACHINE.DAT, using default naming")
                 sensor_names = [f"Sensor_{i+1}" for i in range(10)]  # Default fallback
+            else:
+                st.info(f"Found {len(sensor_names)} sensors in D6_MACHINE.DAT")
 
             # Find and parse S$$ pressure waveform files
-            pressure_files = [f for f in file_list if re.match(r'S\$\$\d+', f)]
+            # Files are named like S25S0903.S$$ (with .S$$ extension)
+            pressure_files = [f for f in file_list if f.endswith('.S$$')]
 
             if not pressure_files:
-                st.error("No pressure waveform files (S$$) found in .wrpm archive")
+                st.error("No pressure waveform files (.S$$) found in .wrpm archive")
+                st.info(f"Files found: {', '.join(file_list[:10])}")  # Show first 10 files for debugging
                 return None, None, machine_id
 
             # Read first pressure file to get waveform data
