@@ -17,6 +17,8 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import MinMaxScaler
 import plotly.express as px
 import math
+import zipfile
+import struct
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -40,7 +42,7 @@ if 'pending_tag' not in st.session_state:
 # --- Global Configuration & Constants ---
 FAULT_LABELS = [
     "Normal", "Valve Leakage", "Valve Wear", "Valve Sticking or Fouling",
-    "Valve Impact or Slamming", "Broken or Missing Valve Parts",
+    "Closing Hard or Slamming", "Broken or Missing Valve Parts",
     "Valve Misalignment", "Spring Fatigue or Failure", "Other"
 ]
 
@@ -483,11 +485,11 @@ def enhanced_file_upload_section():
         
     # Upload input
     uploaded_files = st.file_uploader(
-        "Upload Curves, Levels, Source XML files",
-        type=["xml"],
+        "Upload XML files or .wrpm file",
+        type=["xml", "wrpm"],
         accept_multiple_files=True,
         key=f"file_uploader_{st.session_state.file_uploader_key}",
-        help="Upload exactly 3 XML files: one each for Curves, Levels, and Source data"
+        help="Upload 3 XML files (Curves, Levels, Source) OR 1 .wrpm file"
     )
 
     if st.button("🗑️ Start New Analysis / Clear Files"):
@@ -501,6 +503,68 @@ def enhanced_file_upload_section():
         st.rerun()
 
     if uploaded_files:
+        # Detect file type: .wrpm or XML
+        is_wrpm = len(uploaded_files) == 1 and uploaded_files[0].name.lower().endswith('.wrpm')
+
+        if is_wrpm:
+            # Handle .wrpm file
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            status_text.text("🔍 Parsing .wrpm file...")
+            progress_bar.progress(25)
+
+            # Add manual RPM input for .wrpm files
+            manual_rpm = st.number_input("Enter RPM (if known)", min_value=100, max_value=1200, value=300, step=10,
+                                        help="RPM will be extracted automatically in future updates")
+
+            # Parse .wrpm file
+            df, curve_names, machine_id = parse_wrpm_file(uploaded_files[0], manual_rpm)
+
+            if df is None:
+                progress_bar.progress(100)
+                st.error("❌ Failed to parse .wrpm file")
+                return None
+
+            progress_bar.progress(75)
+            status_text.text("✅ .wrpm file parsed successfully!")
+
+            # Create files_content structure to match XML flow
+            files_content = {
+                'is_wrpm': True,
+                'df': df,
+                'curve_names': curve_names,
+                'machine_id': machine_id,
+                'rpm': manual_rpm,
+                'wrpm_filename': uploaded_files[0].name
+            }
+
+            progress_bar.progress(100)
+            st.success(f"✅ Loaded .wrpm file: {machine_id}")
+
+            # Show .wrpm file info
+            st.markdown("### 📋 Data Preview")
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.markdown(f"""
+                **🏭 Machine Information:**
+                - **ID:** {machine_id}
+                - **RPM:** {manual_rpm}
+                - **File:** {uploaded_files[0].name}
+                """)
+
+            with col2:
+                st.markdown(f"""
+                **📊 Data Summary:**
+                - **Sensors:** {len(curve_names)}
+                - **Data Points:** {len(df)}
+                - **File Type:** .wrpm (Windrock native format)
+                """)
+
+            return files_content
+
+        # Handle XML files (original logic)
         if len(uploaded_files) != 3:
             st.error(f"❌ Please upload exactly 3 XML files. You uploaded {len(uploaded_files)} files.")
             st.info("💡 Required files: Curves.xml, Levels.xml, Source.xml")
@@ -870,6 +934,80 @@ def load_all_curves_data(_curves_xml_content):
         st.error(f"Failed to load curves data: {e}")
         return None, None
 
+def parse_wrpm_file(wrpm_file, manual_rpm=300):
+    """
+    Parse .wrpm file (ZIP archive) and extract pressure waveform data.
+    Returns DataFrame in same format as load_all_curves_data() for compatibility.
+    """
+    try:
+        # Extract ZIP contents
+        with zipfile.ZipFile(io.BytesIO(wrpm_file.read()), 'r') as zip_ref:
+            file_list = zip_ref.namelist()
+
+            # Extract machine ID from D6NAME3.DAT
+            machine_id = "Unknown"
+            if 'D6NAME3.DAT' in file_list:
+                d6name3_content = zip_ref.read('D6NAME3.DAT').decode('utf-8', errors='ignore').strip()
+                machine_id = d6name3_content if d6name3_content else "Unknown"
+
+            # Extract sensor names from D6_MACHINE.DAT
+            sensor_names = []
+            if 'D6_MACHINE.DAT' in file_list:
+                d6machine_content = zip_ref.read('D6_MACHINE.DAT').decode('utf-8', errors='ignore')
+                # Extract sensor names using regex pattern from docs
+                sensor_pattern = r'"([A-Z0-9\s]+(?:HE|CE|HEAD|CRANK|SUCTION|DISCHARGE|FRAME)[^"]*)"'
+                sensor_names = re.findall(sensor_pattern, d6machine_content)
+
+            if not sensor_names:
+                st.warning("No sensors found in D6_MACHINE.DAT, using default naming")
+                sensor_names = [f"Sensor_{i+1}" for i in range(10)]  # Default fallback
+
+            # Find and parse S$$ pressure waveform files
+            pressure_files = [f for f in file_list if re.match(r'S\$\$\d+', f)]
+
+            if not pressure_files:
+                st.error("No pressure waveform files (S$$) found in .wrpm archive")
+                return None, None, machine_id
+
+            # Read first pressure file to get waveform data
+            pressure_file = pressure_files[0]
+            waveform_data = zip_ref.read(pressure_file)
+
+            # Parse as 32-bit IEEE 754 floats (little-endian)
+            float_count = len(waveform_data) // 4
+            waveform_floats = struct.unpack(f'<{float_count}f', waveform_data)
+
+            # Calculate points per sensor (typically 360 points per revolution)
+            points_per_sensor = len(waveform_floats) // len(sensor_names)
+
+            # Create crank angle array (0-720 degrees for full cycle)
+            crank_angles = np.linspace(0, 720, points_per_sensor)
+
+            # Build DataFrame with crank angles and sensor data
+            data_dict = {'Crank Angle': crank_angles}
+
+            for i, sensor_name in enumerate(sensor_names):
+                start_idx = i * points_per_sensor
+                end_idx = start_idx + points_per_sensor
+                if end_idx <= len(waveform_floats):
+                    data_dict[sensor_name] = waveform_floats[start_idx:end_idx]
+
+            df = pd.DataFrame(data_dict)
+            actual_columns = list(df.columns)[1:]  # Exclude 'Crank Angle'
+
+            st.success(f"✅ Loaded .wrpm file: {machine_id} ({len(actual_columns)} sensors, {len(df)} data points)")
+
+            return df, actual_columns, machine_id
+
+    except zipfile.BadZipFile:
+        st.error("Invalid .wrpm file: Not a valid ZIP archive")
+        return None, None, None
+    except Exception as e:
+        st.error(f"Failed to parse .wrpm file: {e}")
+        import traceback
+        st.error(traceback.format_exc())
+        return None, None, None
+
 def save_valve_event_to_db(db_client, session_id, cylinder_name, curve_name, crank_angle, event_type="Manual Tag", fault_classification=None):
     """Save valve event to database with fault classification"""
     try:
@@ -891,6 +1029,50 @@ def save_anomaly_tag_to_db(db_client, session_id, cylinder_name, curve_name, cra
     except Exception as e:
         st.error(f"Database error saving anomaly tag: {e}")
         raise
+
+
+def save_waveform_data_to_db(db_client, session_id, cylinder_name, curve_name, crank_angles, data_values, curve_type):
+    """
+    Save waveform data points to database for ML training.
+    Uses batch insert for efficiency.
+
+    Args:
+        db_client: Database client connection
+        session_id: Current session ID
+        cylinder_name: Name of the cylinder
+        curve_name: Name of the curve (e.g., "HE PT", "CE SV")
+        crank_angles: Array of crank angle values
+        data_values: Array of corresponding data values (pressure/vibration)
+        curve_type: Type of curve ("pressure" or "vibration")
+    """
+    try:
+        # First, check if waveform data already exists for this session/cylinder/curve
+        check_rs = db_client.execute(
+            "SELECT COUNT(*) FROM waveform_data WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
+            (session_id, cylinder_name, curve_name)
+        )
+        existing_count = check_rs.rows[0][0] if check_rs.rows else 0
+
+        if existing_count > 0:
+            # Data already saved, skip to avoid duplicates
+            return
+
+        # Prepare batch insert statements
+        insert_statements = []
+        for angle, value in zip(crank_angles, data_values):
+            insert_statements.append(
+                f"INSERT INTO waveform_data (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES ({session_id}, '{cylinder_name}', '{curve_name}', {angle}, {value}, '{curve_type}')"
+            )
+
+        # Execute in batches of 500 to avoid overwhelming the database
+        batch_size = 500
+        for i in range(0, len(insert_statements), batch_size):
+            batch = insert_statements[i:i+batch_size]
+            db_client.batch(batch)
+
+    except Exception as e:
+        st.warning(f"Could not save waveform data for {curve_name}: {e}")
+        # Don't raise - waveform saving is optional and shouldn't break the app
 
 
 def extract_rpm_from_source(source_xml_content):
@@ -1836,7 +2018,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                 x=df['Crank Angle'],
                 y=df[pressure_curve],
                 name='Pressure (PSIG)',
-                line=dict(color=pressure_color, width=2)
+                line=dict(color=pressure_color, width=2),
+                customdata=[[pressure_curve]] * len(df)  # Store actual column name
             ),
             secondary_y=False
         )
@@ -1891,7 +2074,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     fill='tonexty',
                     fillcolor=color_rgba,
                     name=label_name,
-                    hoverinfo='none'
+                    hoverinfo='none',
+                    customdata=[[curve_name]] * len(df)  # Store actual column name
                 ),
                 secondary_y=True
             )
@@ -1903,7 +2087,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     y=vibration_data,
                     name=label_name,
                     mode='lines',
-                    line=dict(color=color_rgba.replace('0.4','1'))
+                    line=dict(color=color_rgba.replace('0.4','1')),
+                    customdata=[[curve_name]] * len(df)  # Store actual column name
                 ),
                 secondary_y=True
             )
@@ -2310,7 +2495,7 @@ def run_rule_based_diagnostics_enhanced(report_data, pressure_limit=10, valve_li
                         suggestions[item_name] = 'Valve Wear'
                 elif 'Discharge' in item_name:
                     if anomaly_count > valve_limit * 1.5:
-                        suggestions[item_name] = 'Valve Impact or Slamming'
+                        suggestions[item_name] = 'Closing Hard or Slamming'
                         critical_alerts.append(f"HIGH: {item_name} has {anomaly_count} anomalies (limit: {valve_limit})")
                     else:
                         suggestions[item_name] = 'Valve Wear'
@@ -2977,7 +3162,47 @@ def render_action_buttons():
 if validated_files:
     files_content = validated_files
 
-    if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
+    # Handle .wrpm files
+    if files_content.get('is_wrpm'):
+        if st.session_state.analysis_results is None:
+            with st.spinner("🔄 Processing .wrpm data..."):
+                df = files_content['df']
+                curve_names = files_content['curve_names']
+                machine_id = files_content['machine_id']
+                rpm = files_content['rpm']
+
+                # Create minimal discovered_config structure for .wrpm data
+                # Assume single cylinder with all curves as pressure curves
+                discovered_config = {
+                    'machine_id': machine_id,
+                    'rated_rpm': rpm,
+                    'cylinders': [{
+                        'cylinder_name': 'Cylinder 1',
+                        'pressure_curves': curve_names,
+                        'valve_vibration_curves': [],
+                        'other_curves': []
+                    }]
+                }
+
+                # Create database session
+                if st.session_state.active_session_id is None:
+                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                    st.session_state.active_session_id = get_last_row_id(db_client)
+                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+
+                # Store results in session state
+                st.session_state.analysis_results = {
+                    'df': df,
+                    'discovered_config': discovered_config,
+                    'actual_curve_names': curve_names,
+                    'files_content': files_content,
+                    'rpm': rpm,
+                    'machine_id': machine_id
+                }
+                st.success("✅ .wrpm analysis complete!")
+
+    # Handle XML files (original logic)
+    elif 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
         
         # Only run heavy analysis if not already done
         if st.session_state.analysis_results is None:
@@ -3047,8 +3272,26 @@ if validated_files:
             if selected_cylinder_config:
                 # Generate plot and initial data
                 fig, temp_report_data = generate_cylinder_view(db_client, df.copy(), selected_cylinder_config, envelope_view, vertical_offset, {}, contamination_level, view_mode=view_mode, clearance_pct=clearance_pct, show_pv_overlay=show_pv_overlay, amplitude_scale=amplitude_scale, dark_theme=dark_theme)
-    
-                
+
+                # Create mapping from trace display names to actual column names
+                # This is needed because Streamlit's on_select doesn't pass customdata
+                curve_name_mapping = {}
+                for trace in fig.data:
+                    trace_name = trace.name  # Display name (e.g., "CE Discharge 2 (US)" or "CE Discharge 2 (US) Anomalies")
+                    if trace_name:  # Skip traces without names
+                        # Find matching column name in temp_report_data
+                        for item in temp_report_data:
+                            item_name = item.get('name', '')
+                            # Match if item name appears in trace name (handles both regular and "Anomalies" suffix)
+                            if item_name and item_name in trace_name:
+                                curve_name_mapping[trace_name] = item['curve_name']
+                                break
+
+                # Store mapping in session state for access in click handler
+                if 'curve_name_mapping' not in st.session_state:
+                    st.session_state.curve_name_mapping = {}
+                st.session_state.curve_name_mapping[selected_cylinder_name] = curve_name_mapping
+
                 # Apply pressure options to the plot (NEW!)
                 if view_mode == "Crank-angle":  # Only apply to crank-angle view
                     fig = apply_pressure_options_to_plot(fig, df.copy(), selected_cylinder_config, pressure_options, files_content)
@@ -3139,16 +3382,22 @@ if validated_files:
                                 clicked_x = point.get('x')
                                 curve_number = point.get('curve_number')
 
-                                # Get the curve name from the trace
-                                curve_name = None
+                                # Get the curve name from the clicked trace
+                                display_name = None
                                 if curve_number is not None and curve_number < len(fig.data):
-                                    curve_name = fig.data[curve_number].name
+                                    display_name = fig.data[curve_number].name
 
-                                if clicked_x is not None and st.session_state.pending_tag is None:
-                                    # Set pending tag for classification with curve name
+                                # Translate display name to actual column name using mapping
+                                actual_curve_name = display_name
+                                if display_name and selected_cylinder_name in st.session_state.get('curve_name_mapping', {}):
+                                    mapping = st.session_state.curve_name_mapping[selected_cylinder_name]
+                                    actual_curve_name = mapping.get(display_name, display_name)
+
+                                if clicked_x is not None and st.session_state.pending_tag is None and actual_curve_name:
+                                    # Set pending tag for classification with ACTUAL column name
                                     st.session_state.pending_tag = {
                                         'angle': clicked_x,
-                                        'curve_name': curve_name
+                                        'curve_name': actual_curve_name
                                     }
                                     st.rerun()
                     
@@ -3160,7 +3409,16 @@ if validated_files:
                             for i, tag in enumerate(existing_tags):
                                 if isinstance(tag, dict):
                                     curve_name = tag.get('curve_name', 'Unknown curve')
-                                    st.write(f"• **{curve_name}**: {tag['fault_classification']} at {tag['angle']:.2f}°")
+                                    # Make display name more readable - extract key part or truncate
+                                    display_name = curve_name
+                                    if len(curve_name) > 50:
+                                        # Extract meaningful part (e.g., "1HD2" from "578-A.1HD2.ULTRASONIC...")
+                                        parts = curve_name.split('.')
+                                        if len(parts) >= 2:
+                                            display_name = f"{parts[1]}... ({parts[0]})"
+                                        else:
+                                            display_name = curve_name[:50] + "..."
+                                    st.write(f"• **{display_name}**: {tag['fault_classification']} at {tag['angle']:.2f}°")
                                 else:
                                     # Handle legacy tags
                                     st.write(f"• Legacy tag: {tag:.2f}°")
@@ -3168,29 +3426,71 @@ if validated_files:
                             if st.button("💾 Save Tags", key="save_tags"):
                                 # Save tags to database for all curves in this cylinder
                                 saved_count = 0
+                                waveform_count = 0
+
                                 for item in temp_report_data:
                                     # Get or create analysis ID for this curve
-                                    rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?", 
+                                    rs = db_client.execute("SELECT id FROM analyses WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
                                                          (st.session_state.active_session_id, selected_cylinder_name, item['curve_name']))
                                     existing_id_row = rs.rows[0] if rs.rows else None
                                     if existing_id_row:
                                         analysis_id = existing_id_row[0]
                                     else:
-                                        db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)", 
+                                        db_client.execute("INSERT INTO analyses (session_id, cylinder_name, curve_name, anomaly_count, threshold) VALUES (?, ?, ?, ?, ?)",
                                                         (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], item['count'], item['threshold']))
                                         analysis_id = get_last_row_id(db_client)
-                                    
+
                                     # Clear existing anomaly tags for this analysis and add new ones
                                     db_client.execute("DELETE FROM anomaly_tags WHERE session_id = ? AND cylinder_name = ? AND curve_name = ? AND tag_type = ?", (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], 'Manual Tag'))
                                     for tag in existing_tags:
                                         if isinstance(tag, dict):
-                                            save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], tag['fault_classification'], 'Manual Tag')
+                                            tag_curve = tag.get('curve_name', '')
+                                            item_curve = item['curve_name']
+
+                                            # Try exact match first
+                                            if tag_curve == item_curve:
+                                                save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], tag['fault_classification'], 'Manual Tag')
+                                                saved_count += 1
+                                            # Try flexible matching: check if tag curve name contains the item curve name or vice versa
+                                            elif tag_curve and item_curve and (tag_curve in item_curve or item_curve in tag_curve):
+                                                save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag['angle'], tag['fault_classification'], 'Manual Tag')
+                                                saved_count += 1
                                         else:
-                                            # Handle legacy tags
+                                            # Handle legacy tags (no curve_name field) - save to all curves for backward compatibility
                                             save_anomaly_tag_to_db(db_client, st.session_state.active_session_id, selected_cylinder_name, item['curve_name'], tag, 'Legacy tag', 'Manual Tag')
-                                        saved_count += 1
-                                
-                                st.success(f"✅ Saved {saved_count} classified tags to database!")
+                                            saved_count += 1
+
+                                    # Save waveform data for ML training (Phase 2)
+                                    curve_name = item['curve_name']
+                                    if curve_name in df.columns:
+                                        # Determine curve type based on the name/unit
+                                        curve_type = "pressure" if item['name'] == "Pressure" or item['unit'] == "PSIG" else "vibration"
+
+                                        # Get crank angles - check for Crank_Angle column
+                                        if 'Crank_Angle' in df.columns:
+                                            crank_angles = df['Crank_Angle'].values
+                                        elif df.index.name == 'Crank_Angle':
+                                            crank_angles = df.index.values
+                                        else:
+                                            # Fallback to using index as crank angles
+                                            crank_angles = df.index.values
+
+                                        # Get data values for this curve
+                                        data_values = df[curve_name].values
+
+                                        # Save to database
+                                        save_waveform_data_to_db(
+                                            db_client,
+                                            st.session_state.active_session_id,
+                                            selected_cylinder_name,
+                                            curve_name,
+                                            crank_angles,
+                                            data_values,
+                                            curve_type
+                                        )
+                                        waveform_count += 1
+
+                                st.success(f"✅ Saved {saved_count} classified tags and {waveform_count} waveform datasets to database!")
                         with tags_col3:
                             if st.button("🗑️ Clear Tags", key="clear_tags"):
                                 st.session_state.valve_event_tags[plot_key] = []
@@ -3311,111 +3611,74 @@ if validated_files:
                 else:
                     st.info("No valve sensors detected for this cylinder")
 
-                # Labeling and event marking
-                with st.expander("Add labels and mark valve events"):
-                    st.subheader("Fault Labels")
+                # Valve timing configuration
+                with st.expander("⚙️ Configure Valve Open/Close Events"):
+                    st.info("💡 Set valve timing for each curve. Values are in crank angle degrees.")
+
+                    # Load existing valve events from database
+                    valve_data = {}
                     for item in report_data:
-                        if item['count'] > 0 and item['name'] != 'Pressure':
-                            # FIXED: Use curve_name for unique keys instead of name
-                            curve_key = item['curve_name'].replace(' ', '_').replace('.', '_').replace('-', '_')
-                            with st.form(key=f"label_form_{curve_key}"):
-                                st.write(f"**{item['name']} Anomaly**")
+                        if item['name'] != 'Pressure':
+                            events_rs = db_client.execute(
+                                "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
+                                (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'])
+                            )
+                            events = {e[0]: e[1] for e in events_rs.rows}
+                            valve_data[item['name']] = {
+                                'curve_name': item['curve_name'],
+                                'open': events.get('open'),
+                                'close': events.get('close')
+                            }
 
-                                default_label = suggestions.get(item['name'], "Normal")
-                                if default_label in FAULT_LABELS:
-                                    selected_label = st.selectbox(
-                                        "Select fault label:",
-                                        options=FAULT_LABELS,
-                                        index=FAULT_LABELS.index(default_label),
-                                        key=f"sel_{curve_key}"
+                    # Single form for all valves
+                    with st.form("all_valve_events"):
+                        st.markdown("**Valve Timing Configuration**")
+                        for valve_name, data in valve_data.items():
+                            cols = st.columns([3, 2, 2])
+                            cols[0].write(f"**{valve_name}**")
+                            open_val = cols[1].number_input(
+                                "Open°",
+                                value=data['open'],
+                                key=f"open_{valve_name}",
+                                format="%.2f",
+                                help="Valve opening angle"
+                            )
+                            close_val = cols[2].number_input(
+                                "Close°",
+                                value=data['close'],
+                                key=f"close_{valve_name}",
+                                format="%.2f",
+                                help="Valve closing angle"
+                            )
+                            valve_data[valve_name]['open_input'] = open_val
+                            valve_data[valve_name]['close_input'] = close_val
+
+                        if st.form_submit_button("💾 Save All Valve Events", type="primary"):
+                            try:
+                                saved_count = 0
+                                for valve_name, data in valve_data.items():
+                                    # Clear existing events
+                                    db_client.execute(
+                                        "DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
+                                        (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'])
                                     )
-                                else:
-                                    selected_label = st.selectbox(
-                                        "Select fault label:",
-                                        options=FAULT_LABELS,
-                                        key=f"sel_{curve_key}"
-                                    )
-
-                                custom_label = st.text_input(
-                                    "Or enter custom label if 'Other':",
-                                    key=f"txt_{curve_key}"
-                                )
-                                if st.form_submit_button("Save Label"):
-                                    final_label = custom_label if selected_label == "Other" and custom_label else selected_label
-                                    if final_label and final_label != "Other":
+                                    # Save new events
+                                    if data['open_input'] is not None:
                                         db_client.execute(
-                                            "INSERT INTO labels (analysis_id, label_text) VALUES (?, ?)",
-                                            (analysis_ids[item['name']], final_label)
+                                            "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                            (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['open_input'], 0.0, 'open')
                                         )
-                                        st.success(f"Label '{final_label}' saved for {item['name']}.")
-
-                    with st.expander("⚙️ Configure Valve Open/Close Events", expanded=False):
-                        st.info("💡 Set valve timing for each curve. Values are in crank angle degrees.")
-
-                        # Load existing valve events from database
-                        valve_data = {}
-                        for item in report_data:
-                            if item['name'] != 'Pressure':
-                                events_rs = db_client.execute(
-                                    "SELECT curve_type, crank_angle FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
-                                    (st.session_state.active_session_id, selected_cylinder_name, item['curve_name'])
-                                )
-                                events = {e[0]: e[1] for e in events_rs.rows}
-                                valve_data[item['name']] = {
-                                    'curve_name': item['curve_name'],
-                                    'open': events.get('open'),
-                                    'close': events.get('close')
-                                }
-
-                        # Single form for all valves
-                        with st.form("all_valve_events"):
-                            st.markdown("**Valve Timing Configuration**")
-                            for valve_name, data in valve_data.items():
-                                cols = st.columns([3, 2, 2])
-                                cols[0].write(f"**{valve_name}**")
-                                open_val = cols[1].number_input(
-                                    "Open°",
-                                    value=data['open'],
-                                    key=f"open_{valve_name}",
-                                    format="%.2f",
-                                    help="Valve opening angle"
-                                )
-                                close_val = cols[2].number_input(
-                                    "Close°",
-                                    value=data['close'],
-                                    key=f"close_{valve_name}",
-                                    format="%.2f",
-                                    help="Valve closing angle"
-                                )
-                                valve_data[valve_name]['open_input'] = open_val
-                                valve_data[valve_name]['close_input'] = close_val
-
-                            if st.form_submit_button("💾 Save All Valve Events", type="primary"):
-                                try:
-                                    saved_count = 0
-                                    for valve_name, data in valve_data.items():
-                                        # Clear existing events
+                                        saved_count += 1
+                                    if data['close_input'] is not None:
                                         db_client.execute(
-                                            "DELETE FROM valve_events WHERE session_id = ? AND cylinder_name = ? AND curve_name = ?",
-                                            (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'])
+                                            "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
+                                            (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['close_input'], 0.0, 'close')
                                         )
-                                        # Save new events
-                                        if data['open_input'] is not None:
-                                            db_client.execute(
-                                                "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                                (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['open_input'], 0.0, 'open')
-                                            )
-                                            saved_count += 1
-                                        if data['close_input'] is not None:
-                                            db_client.execute(
-                                                "INSERT INTO valve_events (session_id, cylinder_name, curve_name, crank_angle, data_value, curve_type) VALUES (?, ?, ?, ?, ?, ?)",
-                                                (st.session_state.active_session_id, selected_cylinder_name, data['curve_name'], data['close_input'], 0.0, 'close')
-                                            )
-                                            saved_count += 1
-                                    st.success(f"✅ Saved {saved_count} valve events successfully!")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Failed to save valve events: {str(e)}")
+                                        saved_count += 1
+                                st.success(f"✅ Saved {saved_count} valve events successfully!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Failed to save valve events: {str(e)}")
 
                 # Export and Cylinder Details
                                     
@@ -3497,3 +3760,171 @@ if rs.rows:
     st.download_button("📊 Download Labels as CSV", csv_data, "anomaly_labels.csv", "text/csv")
 else:
     st.info("📝 No labels found.")
+
+# --- Phase 2 Training Data Export Section ---
+st.markdown("---")
+st.header("🤖 Phase 2: AI Training Data Export")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("📥 Manual Fault Tags")
+    # Query anomaly_tags with session metadata
+    tags_query = """
+        SELECT
+            s.timestamp,
+            s.machine_id,
+            at.cylinder_name,
+            at.curve_name,
+            at.crank_angle,
+            at.fault_classification,
+            at.tag_type,
+            at.created_at
+        FROM anomaly_tags at
+        JOIN sessions s ON at.session_id = s.id
+    """
+    tags_params = []
+    if selected_machine_id_filter != "All":
+        tags_query += " WHERE s.machine_id = ?"
+        tags_params.append(selected_machine_id_filter)
+    tags_query += " ORDER BY at.created_at DESC"
+
+    tags_rs = db_client.execute(tags_query, tuple(tags_params))
+    if tags_rs.rows:
+        tags_df = pd.DataFrame(tags_rs.rows, columns=[
+            'Session Timestamp', 'Machine ID', 'Cylinder', 'Curve',
+            'Crank Angle', 'Fault Classification', 'Tag Type', 'Created At'
+        ])
+        st.dataframe(tags_df, use_container_width=True)
+
+        # Download button for tags
+        tags_csv = tags_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download Fault Tags CSV",
+            tags_csv,
+            "fault_tags_training_data.csv",
+            "text/csv",
+            key="download_tags"
+        )
+
+        # Display tag statistics
+        st.markdown("**Tag Statistics:**")
+        fault_counts = tags_df['Fault Classification'].value_counts()
+        for fault_type, count in fault_counts.items():
+            st.write(f"• {fault_type}: {count} tags")
+    else:
+        st.info("📝 No manual tags found. Use the tagging interface above to classify anomalies.")
+
+with col2:
+    st.subheader("🔬 Combined Training Dataset")
+    st.markdown("**Waveform data + Fault classifications**")
+
+    # Query combined waveform + tags data
+    combined_query = """
+        SELECT
+            s.machine_id,
+            s.timestamp,
+            wd.cylinder_name,
+            wd.curve_name,
+            wd.crank_angle,
+            wd.data_value,
+            wd.curve_type,
+            at.fault_classification
+        FROM waveform_data wd
+        JOIN sessions s ON wd.session_id = s.id
+        JOIN anomaly_tags at ON (
+            wd.session_id = at.session_id AND
+            wd.cylinder_name = at.cylinder_name AND
+            wd.curve_name = at.curve_name AND
+            ABS(wd.crank_angle - at.crank_angle) < 1.0
+        )
+    """
+    combined_params = []
+    if selected_machine_id_filter != "All":
+        combined_query += " WHERE s.machine_id = ?"
+        combined_params.append(selected_machine_id_filter)
+    combined_query += " ORDER BY s.timestamp DESC, wd.crank_angle ASC LIMIT 10000"
+
+    combined_rs = db_client.execute(combined_query, tuple(combined_params))
+    if combined_rs.rows:
+        combined_df = pd.DataFrame(combined_rs.rows, columns=[
+            'Machine ID', 'Session Time', 'Cylinder', 'Curve',
+            'Crank Angle', 'Value', 'Type', 'Fault Classification'
+        ])
+
+        st.write(f"**{len(combined_df):,} data points** with fault labels ready for training")
+        st.dataframe(combined_df.head(100), use_container_width=True)
+
+        # Download button for combined training data
+        combined_csv = combined_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            "📥 Download Training Dataset CSV",
+            combined_csv,
+            "ml_training_dataset.csv",
+            "text/csv",
+            key="download_combined"
+        )
+    else:
+        st.info("📝 No combined training data available yet. Save tags with waveforms to generate training data.")
+
+# Data Integrity Check
+st.markdown("---")
+st.header("✅ Data Integrity & Readiness Check")
+
+integrity_col1, integrity_col2, integrity_col3, integrity_col4 = st.columns(4)
+
+with integrity_col1:
+    sessions_rs = db_client.execute("SELECT COUNT(*) FROM sessions")
+    session_count = sessions_rs.rows[0][0] if sessions_rs.rows else 0
+    st.metric("Total Sessions", session_count)
+
+with integrity_col2:
+    tags_count_rs = db_client.execute("SELECT COUNT(*) FROM anomaly_tags")
+    tags_count = tags_count_rs.rows[0][0] if tags_count_rs.rows else 0
+    st.metric("Manual Tags", tags_count)
+
+with integrity_col3:
+    waveform_rs = db_client.execute("SELECT COUNT(DISTINCT session_id || cylinder_name || curve_name) FROM waveform_data")
+    waveform_count = waveform_rs.rows[0][0] if waveform_rs.rows else 0
+    st.metric("Waveform Datasets", waveform_count)
+
+with integrity_col4:
+    analyses_rs = db_client.execute("SELECT COUNT(*) FROM analyses")
+    analyses_count = analyses_rs.rows[0][0] if analyses_rs.rows else 0
+    st.metric("Analyses", analyses_count)
+
+# Check against PRD requirements
+st.subheader("📊 Phase 2 Training Data Requirements (PRD Section 7.1)")
+
+prd_requirements = {
+    "Normal": 100,
+    "Valve Leakage": 50,
+    "Valve Wear": 30,
+    "Valve Sticking or Fouling": 25,
+    "Closing Hard or Slamming": 25
+}
+
+# Get current fault distribution
+fault_dist_rs = db_client.execute("""
+    SELECT fault_classification, COUNT(*) as count
+    FROM anomaly_tags
+    GROUP BY fault_classification
+""")
+
+fault_distribution = {row[0]: row[1] for row in fault_dist_rs.rows} if fault_dist_rs.rows else {}
+
+# Display progress
+for fault_type, required in prd_requirements.items():
+    current = fault_distribution.get(fault_type, 0)
+    percentage = min(100, int((current / required) * 100))
+
+    status_color = "🟢" if current >= required else "🟡" if current >= required * 0.5 else "🔴"
+    st.write(f"{status_color} **{fault_type}**: {current}/{required} ({percentage}%)")
+    st.progress(percentage / 100)
+
+if sum(fault_distribution.values()) >= 200:
+    st.success("✅ Sufficient data collected for Phase 2 supervised learning!")
+else:
+    remaining = 200 - sum(fault_distribution.values())
+    st.warning(f"⚠️ Need {remaining} more tagged examples to meet minimum Phase 2 requirements.")
+
