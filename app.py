@@ -3761,15 +3761,6 @@ if validated_files:
                             <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
                             </div>
                             """, unsafe_allow_html=True)
-        
-            else:
-                st.error("Could not discover a valid machine configuration.")
-        else:
-            st.error("Failed to process curve data.")
-    else:
-        st.error("Please ensure all three XML files (curves, levels, source) are uploaded.")
-else:
-    st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
 
 # Historical Trend Analysis
 st.markdown("---")
