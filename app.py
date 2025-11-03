@@ -3577,13 +3577,14 @@ if validated_files:
                 # Now we can safely use health_score in alerts and metrics
                 check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                 st.metric("Health Score", f"{health_score:.1f}")
-                    
-                # Display health report
-                st.subheader("📋 Compressor Health Report")
-                cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
-                health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
-                if not health_report_df.empty:
-                    st.dataframe(health_report_df, use_container_width=True, hide_index=True)
+
+                # Display health report (XML files only)
+                if not files_content.get('is_wrpm'):
+                    st.subheader("📋 Compressor Health Report")
+                    cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
+                    health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
+                    if not health_report_df.empty:
+                        st.dataframe(health_report_df, use_container_width=True, hide_index=True)
 
                 # Display valve details table
                 st.subheader("🔧 Valve Sensors Detected")
@@ -3743,24 +3744,27 @@ if validated_files:
                   <strong>Rated HP:</strong> {discovered_config.get('rated_hp','N/A')}
                 </div>
                 """, unsafe_allow_html=True)
-                st.header("🔧 All Cylinder Details")
-                all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
-                if all_details:
-                    cols = st.columns(len(all_details) or 1)
-                    for i, detail in enumerate(all_details):
-                        with cols[i]:
-                            st.markdown(f"""
-                            <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                            <h5>{detail['name']}</h5>
-                            <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                            <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
-                            <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
-                            <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
-                            <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                            <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                            <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
-                            </div>
-                            """, unsafe_allow_html=True)
+
+                # All Cylinder Details (XML files only)
+                if not files_content.get('is_wrpm'):
+                    st.header("🔧 All Cylinder Details")
+                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+                    if all_details:
+                        cols = st.columns(len(all_details) or 1)
+                        for i, detail in enumerate(all_details):
+                            with cols[i]:
+                                st.markdown(f"""
+                                <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
+                                <h5>{detail['name']}</h5>
+                                <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                                <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
+                                <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
+                                <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
+                                <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                                <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                                <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                                </div>
+                                """, unsafe_allow_html=True)
 
 # Historical Trend Analysis
 st.markdown("---")
