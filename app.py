@@ -562,7 +562,22 @@ def enhanced_file_upload_section():
                 - **File Type:** .wrpm (Windrock native format)
                 """)
 
-            return files_content
+            # Show analyze button (matching XML flow)
+            st.markdown("---")
+            st.success("✅ **Data looks good! Ready to analyze**")
+
+            col1, col2, col3 = st.columns([1, 3, 1])
+            with col2:
+                if st.button("🚀 Analyse", type="primary", use_container_width=True):
+                    # Clear old analysis results when new files are uploaded
+                    st.session_state.analysis_results = None
+                    st.session_state.active_session_id = None
+                    if 'auto_discover_config' in st.session_state:
+                        del st.session_state['auto_discover_config']
+                    st.session_state.validated_files = files_content
+                    return files_content
+
+            return None
 
         # Handle XML files (original logic)
         if len(uploaded_files) != 3:
