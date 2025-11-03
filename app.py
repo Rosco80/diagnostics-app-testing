@@ -3241,13 +3241,16 @@ if validated_files:
                 rpm = files_content['rpm']
 
                 # Create minimal discovered_config structure for .wrpm data
-                # Assume single cylinder with all curves as pressure curves
+                # Select the first curve as the main pressure curve for plotting
+                main_pressure_curve = curve_names[0] if curve_names else None
+
                 discovered_config = {
                     'machine_id': machine_id,
                     'rated_rpm': rpm,
                     'cylinders': [{
                         'cylinder_name': 'Cylinder 1',
-                        'pressure_curves': curve_names,
+                        'pressure_curve': main_pressure_curve,  # Single curve for plotting
+                        'pressure_curves': curve_names,  # All curves for reference
                         'valve_vibration_curves': [],
                         'other_curves': []
                     }]
@@ -3286,8 +3289,8 @@ if validated_files:
             with st.sidebar:
                 selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-                # Signal Validation Status - moved here to use the correct selected cylinder
-                if pressure_options['enable_pressure'] and selected_cylinder_config:
+                # Signal Validation Status - moved here to use the correct selected cylinder (XML files only)
+                if pressure_options['enable_pressure'] and selected_cylinder_config and not files_content.get('is_wrpm'):
                     st.sidebar.markdown("---")
                     st.sidebar.markdown("### 📊 Signal Validation Status")
                     st.sidebar.markdown("*Signal quality indicators*")
