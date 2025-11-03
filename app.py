@@ -3275,6 +3275,7 @@ if validated_files:
                     'machine_id': machine_id
                 }
                 st.success("✅ .wrpm analysis complete!")
+                st.write("🐛 DEBUG: .wrpm processing complete, analysis_results stored")
 
     # Handle XML files (original logic)
     elif 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
@@ -3305,28 +3306,31 @@ if validated_files:
                             'machine_id': machine_id
                         }
                         st.success("✅ Analysis complete! Settings can now be changed without refreshing.")
-        
-        # Use stored results for all UI operations
-        if st.session_state.analysis_results:
-            df = st.session_state.analysis_results['df']
-            discovered_config = st.session_state.analysis_results['discovered_config']
-            files_content = st.session_state.analysis_results['files_content']
-            rpm = st.session_state.analysis_results['rpm']
-            machine_id = st.session_state.analysis_results['machine_id']
-            
-            # Continue with your existing analysis logic here...
-            cylinders = discovered_config.get("cylinders", [])
-            cylinder_names = [c.get("cylinder_name") for c in cylinders]
-            
-            # Rest of your existing code stays the same...
-            with st.sidebar:
-                selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-                # Signal Validation Status - moved here to use the correct selected cylinder
-                if pressure_options['enable_pressure'] and selected_cylinder_config:
-                    st.sidebar.markdown("---")
-                    st.sidebar.markdown("### 📊 Signal Validation Status")
-                    st.sidebar.markdown("*Signal quality indicators*")
+    # Use stored results for all UI operations (DEDENTED - runs for both .wrpm and XML)
+    st.write("🐛 DEBUG: Checking if analysis_results exists for visualization")
+    st.write(f"🐛 analysis_results is not None: {st.session_state.analysis_results is not None}")
+    if st.session_state.analysis_results:
+        st.write("🐛 DEBUG: analysis_results found, starting visualization")
+        df = st.session_state.analysis_results['df']
+        discovered_config = st.session_state.analysis_results['discovered_config']
+        files_content = st.session_state.analysis_results['files_content']
+        rpm = st.session_state.analysis_results['rpm']
+        machine_id = st.session_state.analysis_results['machine_id']
+
+        # Continue with your existing analysis logic here...
+        cylinders = discovered_config.get("cylinders", [])
+        cylinder_names = [c.get("cylinder_name") for c in cylinders]
+
+        # Rest of your existing code stays the same...
+        with st.sidebar:
+            selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
+
+            # Signal Validation Status - moved here to use the correct selected cylinder
+            if pressure_options['enable_pressure'] and selected_cylinder_config:
+                st.sidebar.markdown("---")
+                st.sidebar.markdown("### 📊 Signal Validation Status")
+                st.sidebar.markdown("*Signal quality indicators*")
 
                     st.sidebar.write(f"🔧 Validating signals for: {selected_cylinder_config.get('cylinder_name', 'Unknown')}")
 
