@@ -443,9 +443,34 @@ def enhanced_file_upload_section():
         st.success("✅ Files already loaded and validated!")
 
         files_content = st.session_state.validated_files
-        preview_info = extract_preview_info(files_content)
 
-        st.markdown("""
+        # Handle .wrpm vs XML preview differently
+        if files_content.get('is_wrpm'):
+            # .wrpm file preview
+            st.markdown("""
+<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
+    <div style="flex: 1 1 45%;">
+        <strong>Machine ID:</strong><br>{machine_id}
+    </div>
+    <div style="flex: 1 1 45%;">
+        <strong>Sensors:</strong><br>{sensors}
+    </div>
+    <div style="flex: 1 1 45%;">
+        <strong>Data Points:</strong><br>{points}
+    </div>
+    <div style="flex: 1 1 45%;">
+        <strong>File Type:</strong><br>.wrpm (Windrock)
+    </div>
+</div>
+""".format(
+    machine_id=files_content.get('machine_id', 'Unknown'),
+    sensors=len(files_content.get('curve_names', [])),
+    points=len(files_content.get('df', []))
+), unsafe_allow_html=True)
+        else:
+            # XML file preview
+            preview_info = extract_preview_info(files_content)
+            st.markdown("""
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
     <div style="flex: 1 1 45%;">
         <strong>Machine ID:</strong><br>{machine_id}
