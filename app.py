@@ -440,16 +440,12 @@ def enhanced_file_upload_section():
 
     # Check if we already have validated files in session state
     if 'validated_files' in st.session_state and st.session_state.validated_files:
-        st.write("🐛 DEBUG: Found validated_files in session_state")
         st.success("✅ Files already loaded and validated!")
 
         files_content = st.session_state.validated_files
-        st.write(f"🐛 files_content type: {type(files_content)}")
-        st.write(f"🐛 files_content keys: {files_content.keys() if hasattr(files_content, 'keys') else 'not a dict'}")
 
         # Handle .wrpm vs XML preview differently
         if files_content.get('is_wrpm'):
-            st.write("🐛 DEBUG: Detected .wrpm in session state")
             # .wrpm file preview
             st.markdown("""
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
@@ -558,7 +554,7 @@ def enhanced_file_upload_section():
             progress_bar.progress(75)
             status_text.text("✅ .wrpm file parsed successfully!")
 
-            # Create files_content structure to match XML flow
+            # Create files_content structure for .wrpm
             files_content = {
                 'is_wrpm': True,
                 'df': df,
@@ -598,23 +594,12 @@ def enhanced_file_upload_section():
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
                 if st.button("🚀 Analyse", type="primary", use_container_width=True):
-                    # DEBUG
-                    st.write("🐛 DEBUG: Analyse button clicked for .wrpm file")
-                    st.write(f"🐛 files_content keys: {files_content.keys()}")
-                    st.write(f"🐛 is_wrpm: {files_content.get('is_wrpm')}")
-                    st.write(f"🐛 machine_id: {files_content.get('machine_id')}")
-                    st.write(f"🐛 curve_names count: {len(files_content.get('curve_names', []))}")
-                    st.write(f"🐛 df shape: {files_content.get('df').shape if files_content.get('df') is not None else 'None'}")
-
-                    # Clear old analysis results when new files are uploaded
+                    # Clear old analysis results
                     st.session_state.analysis_results = None
                     st.session_state.active_session_id = None
                     if 'auto_discover_config' in st.session_state:
                         del st.session_state['auto_discover_config']
                     st.session_state.validated_files = files_content
-
-                    st.write("🐛 DEBUG: Stored in session_state.validated_files")
-                    st.write("🐛 DEBUG: About to return files_content and trigger rerun")
                     return files_content
 
             return None
@@ -1010,29 +995,22 @@ def parse_wrpm_file(wrpm_file, manual_rpm=300):
             if 'D6_MACHINE.DAT' in file_list:
                 d6machine_content = zip_ref.read('D6_MACHINE.DAT').decode('utf-8', errors='ignore')
                 # Extract sensor names - look for lines with common sensor keywords
-                # Pattern matches lines like "Comp 1 H Pressure", "Ambient Temperature", etc.
                 sensor_pattern = r'(?:^|\n)([A-Za-z0-9 ]+(?:Pressure|Temperature|Temp|Trace|Nozzle|Head|Crank)[A-Za-z0-9 ]*)'
                 matches = re.findall(sensor_pattern, d6machine_content, re.MULTILINE)
                 # Clean up sensor names (remove extra whitespace)
                 sensor_names = [' '.join(m.strip().split()) for m in matches if m.strip()]
-
                 # Remove duplicates while preserving order
                 seen = set()
                 sensor_names = [x for x in sensor_names if not (x in seen or seen.add(x))]
 
             if not sensor_names:
-                st.warning("No sensors found in D6_MACHINE.DAT, using default naming")
                 sensor_names = [f"Sensor_{i+1}" for i in range(10)]  # Default fallback
-            else:
-                st.info(f"Found {len(sensor_names)} sensors in D6_MACHINE.DAT")
 
-            # Find and parse S$$ pressure waveform files
-            # Files are named like S25S0903.S$$ (with .S$$ extension)
+            # Find and parse S$$ pressure waveform files (files ending with .S$$)
             pressure_files = [f for f in file_list if f.endswith('.S$$')]
 
             if not pressure_files:
                 st.error("No pressure waveform files (.S$$) found in .wrpm archive")
-                st.info(f"Files found: {', '.join(file_list[:10])}")  # Show first 10 files for debugging
                 return None, None, machine_id
 
             # Read first pressure file to get waveform data
@@ -1061,8 +1039,6 @@ def parse_wrpm_file(wrpm_file, manual_rpm=300):
             df = pd.DataFrame(data_dict)
             actual_columns = list(df.columns)[1:]  # Exclude 'Crank Angle'
 
-            st.success(f"✅ Loaded .wrpm file: {machine_id} ({len(actual_columns)} sensors, {len(df)} data points)")
-
             return df, actual_columns, machine_id
 
     except zipfile.BadZipFile:
@@ -1070,8 +1046,6 @@ def parse_wrpm_file(wrpm_file, manual_rpm=300):
         return None, None, None
     except Exception as e:
         st.error(f"Failed to parse .wrpm file: {e}")
-        import traceback
-        st.error(traceback.format_exc())
         return None, None, None
 
 def save_valve_event_to_db(db_client, session_id, cylinder_name, curve_name, crank_angle, event_type="Manual Tag", fault_classification=None):
@@ -3225,60 +3199,10 @@ def render_action_buttons():
 
 
 
-st.write("🐛 DEBUG: Main analysis section")
-st.write(f"🐛 validated_files exists: {validated_files is not None}")
-if validated_files:
-    st.write(f"🐛 validated_files keys: {validated_files.keys()}")
-    st.write(f"🐛 is_wrpm check: {validated_files.get('is_wrpm')}")
-
 if validated_files:
     files_content = validated_files
 
-    # Handle .wrpm files
-    if files_content.get('is_wrpm'):
-        st.write("🐛 DEBUG: Detected .wrpm file in main section")
-        st.write(f"🐛 analysis_results is None: {st.session_state.analysis_results is None}")
-        if st.session_state.analysis_results is None:
-            st.write("🐛 DEBUG: Starting .wrpm data processing...")
-            with st.spinner("🔄 Processing .wrpm data..."):
-                df = files_content['df']
-                curve_names = files_content['curve_names']
-                machine_id = files_content['machine_id']
-                rpm = files_content['rpm']
-
-                # Create minimal discovered_config structure for .wrpm data
-                # Assume single cylinder with all curves as pressure curves
-                discovered_config = {
-                    'machine_id': machine_id,
-                    'rated_rpm': rpm,
-                    'cylinders': [{
-                        'cylinder_name': 'Cylinder 1',
-                        'pressure_curves': curve_names,
-                        'valve_vibration_curves': [],
-                        'other_curves': []
-                    }]
-                }
-
-                # Create database session
-                if st.session_state.active_session_id is None:
-                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-                    st.session_state.active_session_id = get_last_row_id(db_client)
-                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-                # Store results in session state
-                st.session_state.analysis_results = {
-                    'df': df,
-                    'discovered_config': discovered_config,
-                    'actual_curve_names': curve_names,
-                    'files_content': files_content,
-                    'rpm': rpm,
-                    'machine_id': machine_id
-                }
-                st.success("✅ .wrpm analysis complete!")
-                st.write("🐛 DEBUG: .wrpm processing complete, analysis_results stored")
-
-    # Handle XML files (original logic)
-    elif 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
+    if 'curves' in files_content and 'source' in files_content and 'levels' in files_content:
         
         # Only run heavy analysis if not already done
         if st.session_state.analysis_results is None:
@@ -3307,30 +3231,66 @@ if validated_files:
                         }
                         st.success("✅ Analysis complete! Settings can now be changed without refreshing.")
 
-    # Use stored results for all UI operations (DEDENTED - runs for both .wrpm and XML)
-    st.write("🐛 DEBUG: Checking if analysis_results exists for visualization")
-    st.write(f"🐛 analysis_results is not None: {st.session_state.analysis_results is not None}")
+    # Handle .wrpm files (SIBLING to XML check above)
+    elif files_content.get('is_wrpm'):
+        if st.session_state.analysis_results is None:
+            with st.spinner("🔄 Processing .wrpm data..."):
+                df = files_content['df']
+                curve_names = files_content['curve_names']
+                machine_id = files_content['machine_id']
+                rpm = files_content['rpm']
+
+                # Create minimal discovered_config structure for .wrpm data
+                # Assume single cylinder with all curves as pressure curves
+                discovered_config = {
+                    'machine_id': machine_id,
+                    'rated_rpm': rpm,
+                    'cylinders': [{
+                        'cylinder_name': 'Cylinder 1',
+                        'pressure_curves': curve_names,
+                        'valve_vibration_curves': [],
+                        'other_curves': []
+                    }]
+                }
+
+                # Create database session
+                if st.session_state.active_session_id is None:
+                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
+                    st.session_state.active_session_id = get_last_row_id(db_client)
+                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
+
+                # Store results in session state (SAME structure as XML)
+                st.session_state.analysis_results = {
+                    'df': df,
+                    'discovered_config': discovered_config,
+                    'actual_curve_names': curve_names,
+                    'files_content': files_content,
+                    'rpm': rpm,
+                    'machine_id': machine_id
+                }
+                st.success("✅ .wrpm analysis complete!")
+
+    # Use stored results for all UI operations (works for BOTH .wrpm and XML)
     if st.session_state.analysis_results:
-        st.write("🐛 DEBUG: analysis_results found, starting visualization")
-        df = st.session_state.analysis_results['df']
-        discovered_config = st.session_state.analysis_results['discovered_config']
-        files_content = st.session_state.analysis_results['files_content']
-        rpm = st.session_state.analysis_results['rpm']
-        machine_id = st.session_state.analysis_results['machine_id']
+            df = st.session_state.analysis_results['df']
+            discovered_config = st.session_state.analysis_results['discovered_config']
+            files_content = st.session_state.analysis_results['files_content']
+            rpm = st.session_state.analysis_results['rpm']
+            machine_id = st.session_state.analysis_results['machine_id']
+            
+            # Continue with your existing analysis logic here...
+            cylinders = discovered_config.get("cylinders", [])
+            cylinder_names = [c.get("cylinder_name") for c in cylinders]
+            
+            # Rest of your existing code stays the same...
+            with st.sidebar:
+                selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-        # Continue with your existing analysis logic here...
-        cylinders = discovered_config.get("cylinders", [])
-        cylinder_names = [c.get("cylinder_name") for c in cylinders]
-
-        # Rest of your existing code stays the same...
-        with st.sidebar:
-            selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
-
-            # Signal Validation Status - moved here to use the correct selected cylinder
-            if pressure_options['enable_pressure'] and selected_cylinder_config:
-                st.sidebar.markdown("---")
-                st.sidebar.markdown("### 📊 Signal Validation Status")
-                st.sidebar.markdown("*Signal quality indicators*")
+                # Signal Validation Status - moved here to use the correct selected cylinder
+                if pressure_options['enable_pressure'] and selected_cylinder_config:
+                    st.sidebar.markdown("---")
+                    st.sidebar.markdown("### 📊 Signal Validation Status")
+                    st.sidebar.markdown("*Signal quality indicators*")
 
                     st.sidebar.write(f"🔧 Validating signals for: {selected_cylinder_config.get('cylinder_name', 'Unknown')}")
 
