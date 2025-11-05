@@ -2055,9 +2055,10 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             paper_bgcolor='black',
             font=dict(color='white'),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color='white', size=10)),
-            xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
+            xaxis=dict(gridcolor='#444444', zerolinecolor='#666666', range=[-10, 730]),
             yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
-            yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666')
+            yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666'),
+            margin=dict(l=60, r=60, t=100, b=60)
         )
         fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="white", secondary_y=False)
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="cyan", secondary_y=True)
@@ -2067,7 +2068,9 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
             xaxis_title="Crank Angle (deg)",
             template="ggplot2",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10))
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10)),
+            xaxis=dict(range=[-10, 730]),
+            margin=dict(l=60, r=60, t=100, b=60)
         )
         fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="black", secondary_y=False)
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
