@@ -1771,6 +1771,8 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                         # Apply dark theme or default theme for P-V diagram
                         if dark_theme:
                             fig.update_layout(
+                                autosize=False,
+                                width=1400,
                                 height=700,
                                 title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
                                 template="plotly_dark",
@@ -1780,17 +1782,21 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color='white', size=10)),
                                 showlegend=True,
                                 xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
-                                yaxis=dict(gridcolor='#444444', zerolinecolor='#666666')
+                                yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
+                                margin=dict(l=60, r=60, t=100, b=60)
                             )
                             fig.update_xaxes(title_text="<b>Volume (in³)</b>", color='white')
                             fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color='white')
                         else:
                             fig.update_layout(
+                                autosize=False,
+                                width=1400,
                                 height=700,
                                 title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
                                 template="plotly_white",
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10)),
-                                showlegend=True
+                                showlegend=True,
+                                margin=dict(l=60, r=60, t=100, b=60)
                             )
                             fig.update_xaxes(title_text="<b>Volume (in³)</b>")
                             fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>")
@@ -2042,11 +2048,19 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         
         current_offset += vertical_offset
 
+    # Calculate dynamic X-axis range from actual data
+    x_min = df['Crank Angle'].min()
+    x_max = df['Crank Angle'].max()
+    x_padding = (x_max - x_min) * 0.02  # 2% padding
+    x_range = [x_min - x_padding, x_max + x_padding]
+
     # Set up layout
     title_suffix = " with P-V Overlay" if show_pv_overlay else ""
     # Apply dark theme or default theme
     if dark_theme:
         fig.update_layout(
+            autosize=False,
+            width=1400,
             height=700,
             title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
             xaxis_title="Crank Angle (deg)",
@@ -2055,7 +2069,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             paper_bgcolor='black',
             font=dict(color='white'),
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(color='white', size=10)),
-            xaxis=dict(gridcolor='#444444', zerolinecolor='#666666', range=[-10, 730]),
+            xaxis=dict(gridcolor='#444444', zerolinecolor='#666666', range=x_range),
             yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
             yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666'),
             margin=dict(l=60, r=60, t=100, b=60)
@@ -2064,12 +2078,14 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="cyan", secondary_y=True)
     else:
         fig.update_layout(
+            autosize=False,
+            width=1400,
             height=700,
             title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
             xaxis_title="Crank Angle (deg)",
             template="ggplot2",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5, font=dict(size=10)),
-            xaxis=dict(range=[-10, 730]),
+            xaxis=dict(range=x_range),
             margin=dict(l=60, r=60, t=100, b=60)
         )
         fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="black", secondary_y=False)
@@ -2084,6 +2100,16 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         y_min = -total_offset_range * 0.2
         # Apply the calculated range to the secondary Y-axis (valves)
         fig.update_yaxes(range=[y_min, y_max], secondary_y=True)
+
+    # Calculate dynamic Y-axis range for pressure (primary axis)
+    if pressure_curve and pressure_curve in df.columns:
+        pressure_data = df[pressure_curve]
+        y_min_pressure = pressure_data.min()
+        y_max_pressure = pressure_data.max()
+        y_padding = (y_max_pressure - y_min_pressure) * 0.1  # 10% padding
+        pressure_range = [y_min_pressure - y_padding, y_max_pressure + y_padding]
+        # Apply to primary Y-axis
+        fig.update_yaxes(range=pressure_range, secondary_y=False)
 
     # --- ADD P-V OVERLAY if requested ---
     if show_pv_overlay and view_mode == "Crank-angle" and can_plot_pv:
@@ -3194,7 +3220,7 @@ if validated_files:
                     # Interactive chart with click detection
                     clicked_data = st.plotly_chart(
                         fig,
-                        use_container_width=True,
+                        use_container_width=False,
                         on_select="rerun",
                         selection_mode="points",
                         key=f"interactive_chart_{plot_key}"
@@ -3346,7 +3372,7 @@ if validated_files:
                 # Display the regenerated plot with valve events (replaces the earlier plot)
                 # Only display if NOT in interactive tagging mode (which already displayed the plot above)
                 if not (interactive_tagging and view_mode == "Crank-angle"):
-                    st.plotly_chart(fig, use_container_width=True, key=f"updated_plot_{selected_cylinder_name}")
+                    st.plotly_chart(fig, use_container_width=False, key=f"updated_plot_{selected_cylinder_name}")
 
                 # Run rule-based diagnostics on the report data
                 suggestions, critical_alerts = run_rule_based_diagnostics_enhanced(report_data, pressure_limit, valve_limit)
