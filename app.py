@@ -1777,7 +1777,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 plot_bgcolor='black',
                                 paper_bgcolor='black',
                                 font=dict(color='white'),
-                                legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.01, font=dict(color='white')),
+                                legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(color='white')),
                                 showlegend=True,
                                 xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
                                 yaxis=dict(gridcolor='#444444', zerolinecolor='#666666')
@@ -1789,7 +1789,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                                 height=700,
                                 title_text=f"P-V Diagram — {cylinder_config.get('cylinder_name','Cylinder')}",
                                 template="plotly_white",
-                                legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.01),
+                                legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01),
                                 showlegend=True
                             )
                             fig.update_xaxes(title_text="<b>Volume (in³)</b>")
@@ -2054,7 +2054,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             plot_bgcolor='black',
             paper_bgcolor='black',
             font=dict(color='white'),
-            legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.01, font=dict(color='white')),
+            legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01, font=dict(color='white')),
             xaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
             yaxis=dict(gridcolor='#444444', zerolinecolor='#666666'),
             yaxis2=dict(gridcolor='#444444', zerolinecolor='#666666')
@@ -2067,7 +2067,7 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             title_text=f"Diagnostics for {cylinder_config.get('cylinder_name', 'Cylinder')}{title_suffix}",
             xaxis_title="Crank Angle (deg)",
             template="ggplot2",
-            legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=1.01)
+            legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01)
         )
         fig.update_yaxes(title_text="<b>Pressure (PSIG)</b>", color="black", secondary_y=False)
         fig.update_yaxes(title_text="<b>Vibration (G) with Offset</b>", color="blue", secondary_y=True)
