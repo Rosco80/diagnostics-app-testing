@@ -17,8 +17,6 @@ from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import MinMaxScaler
 import plotly.express as px
 import math
-import zipfile
-import struct
 
 # --- Page Configuration (MUST BE THE FIRST STREAMLIT COMMAND) ---
 st.set_page_config(layout="wide", page_title="Machine Diagnostics Analyzer")
@@ -443,34 +441,9 @@ def enhanced_file_upload_section():
         st.success("✅ Files already loaded and validated!")
 
         files_content = st.session_state.validated_files
+        preview_info = extract_preview_info(files_content)
 
-        # Handle .wrpm vs XML preview differently
-        if files_content.get('is_wrpm'):
-            # .wrpm file preview
-            st.markdown("""
-<div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
-    <div style="flex: 1 1 45%;">
-        <strong>Machine ID:</strong><br>{machine_id}
-    </div>
-    <div style="flex: 1 1 45%;">
-        <strong>Sensors:</strong><br>{sensors}
-    </div>
-    <div style="flex: 1 1 45%;">
-        <strong>Data Points:</strong><br>{points}
-    </div>
-    <div style="flex: 1 1 45%;">
-        <strong>File Type:</strong><br>.wrpm (Windrock)
-    </div>
-</div>
-""".format(
-    machine_id=files_content.get('machine_id', 'Unknown'),
-    sensors=len(files_content.get('curve_names', [])),
-    points=len(files_content.get('df', []))
-), unsafe_allow_html=True)
-        else:
-            # XML file preview
-            preview_info = extract_preview_info(files_content)
-            st.markdown("""
+        st.markdown("""
 <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem;">
     <div style="flex: 1 1 45%;">
         <strong>Machine ID:</strong><br>{machine_id}
@@ -510,11 +483,11 @@ def enhanced_file_upload_section():
         
     # Upload input
     uploaded_files = st.file_uploader(
-        "Upload XML files or .wrpm file",
-        type=["xml", "wrpm"],
+        "Upload Curves, Levels, Source XML files",
+        type=["xml"],
         accept_multiple_files=True,
         key=f"file_uploader_{st.session_state.file_uploader_key}",
-        help="Upload 3 XML files (Curves, Levels, Source) OR 1 .wrpm file"
+        help="Upload exactly 3 XML files: one each for Curves, Levels, and Source data"
     )
 
     if st.button("🗑️ Start New Analysis / Clear Files"):
@@ -528,83 +501,6 @@ def enhanced_file_upload_section():
         st.rerun()
 
     if uploaded_files:
-        # Detect file type: .wrpm or XML
-        is_wrpm = len(uploaded_files) == 1 and uploaded_files[0].name.lower().endswith('.wrpm')
-
-        if is_wrpm:
-            # Handle .wrpm file
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-
-            status_text.text("🔍 Parsing .wrpm file...")
-            progress_bar.progress(25)
-
-            # Add manual RPM input for .wrpm files
-            manual_rpm = st.number_input("Enter RPM (if known)", min_value=100, max_value=1200, value=300, step=10,
-                                        help="RPM will be extracted automatically in future updates")
-
-            # Parse .wrpm file
-            df, curve_names, machine_id = parse_wrpm_file(uploaded_files[0], manual_rpm)
-
-            if df is None:
-                progress_bar.progress(100)
-                st.error("❌ Failed to parse .wrpm file")
-                return None
-
-            progress_bar.progress(75)
-            status_text.text("✅ .wrpm file parsed successfully!")
-
-            # Create files_content structure for .wrpm
-            files_content = {
-                'is_wrpm': True,
-                'df': df,
-                'curve_names': curve_names,
-                'machine_id': machine_id,
-                'rpm': manual_rpm,
-                'wrpm_filename': uploaded_files[0].name
-            }
-
-            progress_bar.progress(100)
-            st.success(f"✅ Loaded .wrpm file: {machine_id}")
-
-            # Show .wrpm file info
-            st.markdown("### 📋 Data Preview")
-            col1, col2 = st.columns(2)
-
-            with col1:
-                st.markdown(f"""
-                **🏭 Machine Information:**
-                - **ID:** {machine_id}
-                - **RPM:** {manual_rpm}
-                - **File:** {uploaded_files[0].name}
-                """)
-
-            with col2:
-                st.markdown(f"""
-                **📊 Data Summary:**
-                - **Sensors:** {len(curve_names)}
-                - **Data Points:** {len(df)}
-                - **File Type:** .wrpm (Windrock native format)
-                """)
-
-            # Show analyze button (matching XML flow)
-            st.markdown("---")
-            st.success("✅ **Data looks good! Ready to analyze**")
-
-            col1, col2, col3 = st.columns([1, 3, 1])
-            with col2:
-                if st.button("🚀 Analyse", type="primary", use_container_width=True):
-                    # Clear old analysis results
-                    st.session_state.analysis_results = None
-                    st.session_state.active_session_id = None
-                    if 'auto_discover_config' in st.session_state:
-                        del st.session_state['auto_discover_config']
-                    st.session_state.validated_files = files_content
-                    return files_content
-
-            return None
-
-        # Handle XML files (original logic)
         if len(uploaded_files) != 3:
             st.error(f"❌ Please upload exactly 3 XML files. You uploaded {len(uploaded_files)} files.")
             st.info("💡 Required files: Curves.xml, Levels.xml, Source.xml")
@@ -973,97 +869,6 @@ def load_all_curves_data(_curves_xml_content):
     except Exception as e:
         st.error(f"Failed to load curves data: {e}")
         return None, None
-
-def parse_wrpm_file(wrpm_file, manual_rpm=300):
-    """
-    Parse .wrpm file (ZIP archive) and extract pressure waveform data.
-    Returns DataFrame in same format as load_all_curves_data() for compatibility.
-
-    FIXED: Now correctly parses P$$ (pressure) files instead of S$$ (vibration) files,
-    uses proper int16 format, and applies calibration scaling to PSIG units.
-    """
-    try:
-        # Extract ZIP contents
-        with zipfile.ZipFile(io.BytesIO(wrpm_file.read()), 'r') as zip_ref:
-            file_list = zip_ref.namelist()
-
-            # Extract machine ID from D6NAME3.DAT
-            machine_id = "Unknown"
-            if 'D6NAME3.DAT' in file_list:
-                d6name3_content = zip_ref.read('D6NAME3.DAT').decode('utf-8', errors='ignore').strip()
-                machine_id = d6name3_content if d6name3_content else "Unknown"
-
-            # Find and parse P$$ PRESSURE waveform files (NOT S$$ vibration files!)
-            pressure_files = [f for f in file_list if f.endswith('.P$$')]
-
-            if not pressure_files:
-                st.error("No pressure waveform files (.P$$) found in .wrpm archive")
-                return None, None, machine_id
-
-            # Read first pressure file to get waveform data
-            pressure_file = pressure_files[0]
-            waveform_data = zip_ref.read(pressure_file)
-
-            # Parse as 16-bit signed integers (NOT 32-bit floats!)
-            # Windrock stores pressure data as raw ADC counts in int16 format
-            int_count = len(waveform_data) // 2
-            waveform_ints = struct.unpack(f'<{int_count}h', waveform_data)
-
-            # Determine data structure
-            # Typical P$$ structure: multiple pressure curves, ~300-360 points per curve
-            # Common patterns: 636 values = 2 curves × 318 points (HE + CE for one cylinder)
-
-            # Try to detect number of curves based on total points
-            if int_count >= 600 and int_count <= 720:
-                # Likely 2 curves (HE PT and CE PT)
-                points_per_curve = int_count // 2
-                sensor_names = ["HE PT", "CE PT"]
-            elif int_count >= 300 and int_count < 600:
-                # Likely 1 curve
-                points_per_curve = int_count
-                sensor_names = ["Pressure"]
-            else:
-                # Unknown structure - treat as single curve
-                points_per_curve = int_count
-                sensor_names = ["Pressure"]
-
-            # Create crank angle array (0-720 degrees for full cycle)
-            crank_angles = np.linspace(0, 720, points_per_curve)
-
-            # Apply calibration to convert raw int16 counts to PSIG
-            # Windrock typical scaling: raw_value / scaling_factor + offset
-            # For pressure sensors, typical range: -100 to +500 PSIG
-            # Raw int16 range: -32768 to +32767
-            # Estimated scaling: (raw / 65535) * 600 PSIG range
-
-            # More refined scaling based on typical compressor pressures:
-            # Assuming raw 0 = 0 PSIG, raw 32767 = ~300 PSIG (typical max)
-            scaling_factor = 300.0 / 32767.0  # Convert to PSIG
-            offset = 0.0  # Assume zero offset for now
-
-            # Build DataFrame with crank angles and calibrated pressure data
-            data_dict = {'Crank Angle': crank_angles}
-
-            for i, sensor_name in enumerate(sensor_names):
-                start_idx = i * points_per_curve
-                end_idx = start_idx + points_per_curve
-                if end_idx <= len(waveform_ints):
-                    # Extract raw values and apply calibration
-                    raw_values = waveform_ints[start_idx:end_idx]
-                    calibrated_values = [v * scaling_factor + offset for v in raw_values]
-                    data_dict[sensor_name] = calibrated_values
-
-            df = pd.DataFrame(data_dict)
-            actual_columns = list(df.columns)[1:]  # Exclude 'Crank Angle'
-
-            return df, actual_columns, machine_id
-
-    except zipfile.BadZipFile:
-        st.error("Invalid .wrpm file: Not a valid ZIP archive")
-        return None, None, None
-    except Exception as e:
-        st.error(f"Failed to parse .wrpm file: {e}")
-        return None, None, None
 
 def save_valve_event_to_db(db_client, session_id, cylinder_name, curve_name, crank_angle, event_type="Manual Tag", fault_classification=None):
     """Save valve event to database with fault classification"""
@@ -3247,51 +3052,9 @@ if validated_files:
                             'machine_id': machine_id
                         }
                         st.success("✅ Analysis complete! Settings can now be changed without refreshing.")
-
-    # Handle .wrpm files (SIBLING to XML check above)
-    elif files_content.get('is_wrpm'):
-        if st.session_state.analysis_results is None:
-            with st.spinner("🔄 Processing .wrpm data..."):
-                df = files_content['df']
-                curve_names = files_content['curve_names']
-                machine_id = files_content['machine_id']
-                rpm = files_content['rpm']
-
-                # Create minimal discovered_config structure for .wrpm data
-                # Select the first curve as the main pressure curve for plotting
-                main_pressure_curve = curve_names[0] if curve_names else None
-
-                discovered_config = {
-                    'machine_id': machine_id,
-                    'rated_rpm': rpm,
-                    'cylinders': [{
-                        'cylinder_name': 'Cylinder 1',
-                        'pressure_curve': main_pressure_curve,  # Single curve for plotting
-                        'pressure_curves': curve_names,  # All curves for reference
-                        'valve_vibration_curves': [],
-                        'other_curves': []
-                    }]
-                }
-
-                # Create database session
-                if st.session_state.active_session_id is None:
-                    db_client.execute("INSERT INTO sessions (machine_id, rpm) VALUES (?, ?)", (machine_id, rpm))
-                    st.session_state.active_session_id = get_last_row_id(db_client)
-                    st.success(f"✅ New analysis session #{st.session_state.active_session_id} created.")
-
-                # Store results in session state (SAME structure as XML)
-                st.session_state.analysis_results = {
-                    'df': df,
-                    'discovered_config': discovered_config,
-                    'actual_curve_names': curve_names,
-                    'files_content': files_content,
-                    'rpm': rpm,
-                    'machine_id': machine_id
-                }
-                st.success("✅ .wrpm analysis complete!")
-
-    # Use stored results for all UI operations (works for BOTH .wrpm and XML)
-    if st.session_state.analysis_results:
+        
+        # Use stored results for all UI operations
+        if st.session_state.analysis_results:
             df = st.session_state.analysis_results['df']
             discovered_config = st.session_state.analysis_results['discovered_config']
             files_content = st.session_state.analysis_results['files_content']
@@ -3306,8 +3069,8 @@ if validated_files:
             with st.sidebar:
                 selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-                # Signal Validation Status - moved here to use the correct selected cylinder (XML files only)
-                if pressure_options['enable_pressure'] and selected_cylinder_config and not files_content.get('is_wrpm'):
+                # Signal Validation Status - moved here to use the correct selected cylinder
+                if pressure_options['enable_pressure'] and selected_cylinder_config:
                     st.sidebar.markdown("---")
                     st.sidebar.markdown("### 📊 Signal Validation Status")
                     st.sidebar.markdown("*Signal quality indicators*")
@@ -3427,8 +3190,9 @@ if validated_files:
                     
                     # Interactive chart with click detection
                     clicked_data = st.plotly_chart(
-                        fig, 
+                        fig,
                         use_container_width=True,
+                        height=600,
                         on_select="rerun",
                         selection_mode="points",
                         key=f"interactive_chart_{plot_key}"
@@ -3463,8 +3227,25 @@ if validated_files:
                     # Show current tags and save options
                     if existing_tags:
                         st.markdown("#### 🏷️ Current Tags")
+
+                        # Scrollable container for tags to prevent graph shrinking
+                        st.markdown("""
+                        <style>
+                        .tags-scrollable {
+                            max-height: 300px;
+                            overflow-y: auto;
+                            padding: 10px;
+                            border: 1px solid #ddd;
+                            border-radius: 5px;
+                            margin-bottom: 10px;
+                        }
+                        </style>
+                        """, unsafe_allow_html=True)
+
                         tags_col1, tags_col2, tags_col3 = st.columns([2, 1, 1])
                         with tags_col1:
+                            # Wrap tags in scrollable container
+                            st.markdown('<div class="tags-scrollable">', unsafe_allow_html=True)
                             for i, tag in enumerate(existing_tags):
                                 if isinstance(tag, dict):
                                     curve_name = tag.get('curve_name', 'Unknown curve')
@@ -3481,6 +3262,7 @@ if validated_files:
                                 else:
                                     # Handle legacy tags
                                     st.write(f"• Legacy tag: {tag:.2f}°")
+                            st.markdown('</div>', unsafe_allow_html=True)
                         with tags_col2:
                             if st.button("💾 Save Tags", key="save_tags"):
                                 # Save tags to database for all curves in this cylinder
@@ -3597,14 +3379,13 @@ if validated_files:
                 # Now we can safely use health_score in alerts and metrics
                 check_and_display_alerts(db_client, machine_id, selected_cylinder_name, critical_alerts, health_score)
                 st.metric("Health Score", f"{health_score:.1f}")
-
-                # Display health report (XML files only)
-                if not files_content.get('is_wrpm'):
-                    st.subheader("📋 Compressor Health Report")
-                    cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
-                    health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
-                    if not health_report_df.empty:
-                        st.dataframe(health_report_df, use_container_width=True, hide_index=True)
+                    
+                # Display health report
+                st.subheader("📋 Compressor Health Report")
+                cylinder_index = int(re.search(r'\d+', selected_cylinder_name).group())
+                health_report_df = generate_health_report_table(files_content['source'], files_content['levels'], cylinder_index)
+                if not health_report_df.empty:
+                    st.dataframe(health_report_df, use_container_width=True, hide_index=True)
 
                 # Display valve details table
                 st.subheader("🔧 Valve Sensors Detected")
@@ -3764,27 +3545,33 @@ if validated_files:
                   <strong>Rated HP:</strong> {discovered_config.get('rated_hp','N/A')}
                 </div>
                 """, unsafe_allow_html=True)
-
-                # All Cylinder Details (XML files only)
-                if not files_content.get('is_wrpm'):
-                    st.header("🔧 All Cylinder Details")
-                    all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
-                    if all_details:
-                        cols = st.columns(len(all_details) or 1)
-                        for i, detail in enumerate(all_details):
-                            with cols[i]:
-                                st.markdown(f"""
-                                <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
-                                <h5>{detail['name']}</h5>
-                                <small>Bore: <strong>{detail['bore']}</strong></small><br>
-                                <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
-                                <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
-                                <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
-                                <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
-                                <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
-                                <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
-                                </div>
-                                """, unsafe_allow_html=True)
+                st.header("🔧 All Cylinder Details")
+                all_details = get_all_cylinder_details(files_content['source'], files_content['levels'], len(cylinders))
+                if all_details:
+                    cols = st.columns(len(all_details) or 1)
+                    for i, detail in enumerate(all_details):
+                        with cols[i]:
+                            st.markdown(f"""
+                            <div style='border:1px solid #ddd; border-radius:5px; padding:10px; margin-bottom:10px;'>
+                            <h5>{detail['name']}</h5>
+                            <small>Bore: <strong>{detail['bore']}</strong></small><br>
+                            <small>Rod Dia.: <strong>{detail.get('rod_diameter', 'N/A')}</strong></small><br>
+                            <small>Stroke: <strong>{detail.get('stroke', 'N/A')}</strong></small><br>
+                            <small>Volume: <strong>{detail.get('volume', 'N/A')}</strong></small><br>
+                            <small>Temps (S/D): <strong>{detail['suction_temp']} / {detail['discharge_temp']}</strong></small><br>
+                            <small>Pressures (S/D): <strong>{detail['suction_pressure']} / {detail['discharge_pressure']}</strong></small><br>
+                            <small>Flow Balance (CE/HE): <strong>{detail['flow_balance_ce']} / {detail['flow_balance_he']}</strong></small>
+                            </div>
+                            """, unsafe_allow_html=True)
+        
+            else:
+                st.error("Could not discover a valid machine configuration.")
+        else:
+            st.error("Failed to process curve data.")
+    else:
+        st.error("Please ensure all three XML files (curves, levels, source) are uploaded.")
+else:
+    st.warning("Please upload your XML data files to begin analysis.", icon="⚠️")
 
 # Historical Trend Analysis
 st.markdown("---")
@@ -3981,3 +3768,4 @@ if sum(fault_distribution.values()) >= 200:
 else:
     remaining = 200 - sum(fault_distribution.values())
     st.warning(f"⚠️ Need {remaining} more tagged examples to meet minimum Phase 2 requirements.")
+
