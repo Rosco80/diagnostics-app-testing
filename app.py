@@ -2108,6 +2108,19 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
         # Apply the calculated range to the secondary Y-axis (valves)
         fig.update_yaxes(range=[y_min, y_max], secondary_y=True)
 
+    # Configure third Y-axis for volume overlay (if P-V overlay is enabled later)
+    fig.update_layout(
+        yaxis3=dict(
+            title="<b>Volume (in³)</b>",
+            titlefont=dict(color='purple'),
+            tickfont=dict(color='purple'),
+            overlaying='y',
+            side='right',
+            position=1.0,
+            showgrid=False
+        )
+    )
+
     # Calculate dynamic Y-axis range for pressure (primary axis)
     if pressure_curve and pressure_curve in df.columns:
         pressure_data = df[pressure_curve]
@@ -2135,24 +2148,20 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
                     if volume_range < 1e-6:
                         st.warning("⚠️ Volume range too small - skipping P-V overlay")
                     else:
-                        # Scale volume to use about 20% of the pressure range at the top
-                        volume_scaled = ((V - V.min()) / volume_range) * (pressure_range * 0.2) + pressure_data.max() + (pressure_range * 0.05)
-
-                        # Add P-V overlay as a line
+                        # Add P-V overlay with real volume values on third Y-axis
                         fig.add_trace(
                             go.Scatter(
                                 x=df['Crank Angle'],
-                                y=volume_scaled,
+                                y=V,
                                 mode='lines',
                                 line=dict(color='purple', width=2, dash='dot'),
-                                name='Volume (scaled)',
+                                name='Volume (in³)',
                                 hovertemplate="<b>Crank Angle:</b> %{x:.1f}°<br>" +
-                                            "<b>Volume:</b> %{customdata:.1f} in³<br>" +
+                                            "<b>Volume:</b> %{y:.1f} in³<br>" +
                                             "<extra></extra>",
-                                customdata=V,
+                                yaxis='y3',
                                 opacity=0.7
-                            ),
-                            secondary_y=False
+                            )
                         )
 
                         try:
