@@ -634,25 +634,25 @@ def enhanced_file_upload_section():
         return None
 
 
-def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
+def compute_volume_series(crank_angles, bore, stroke, clearance_pct, rod_to_crank_ratio=3.5):
     """
     Computes instantaneous cylinder volume for each crank angle for P-V diagram.
-    FIXED: Proper index alignment to prevent out-of-bounds errors
+    Uses proper slider-crank kinematics with connecting rod geometry.
     """
     if len(crank_angles) == 0:
         return pd.Series([], dtype=float)
-        
+
     try:
         # Convert inputs to float
         bore_f = float(bore)
-        stroke_f = float(stroke) 
+        stroke_f = float(stroke)
         clearance_f = float(clearance_pct) / 100.0
-        
+
         # Calculate swept volume
         area = math.pi * (bore_f / 2) ** 2
         swept_volume = area * stroke_f
         clearance_volume = swept_volume * clearance_f
-        
+
         # Convert crank angles - preserve original index from DataFrame
         if isinstance(crank_angles, pd.Series):
             # If it's already a pandas Series, use it directly
@@ -660,24 +660,31 @@ def compute_volume_series(crank_angles, bore, stroke, clearance_pct):
         else:
             # If it's a list/array, convert to Series with default index
             crank_angles_series = pd.Series(crank_angles, dtype=float)
-        
+
         # Convert to radians
         theta_rad = np.deg2rad(crank_angles_series)
-        
-        # Calculate piston position using kinematic formula
-        # For simplified MVP: piston_position = stroke/2 * (1 - cos(theta))
-        piston_position = (stroke_f / 2) * (1 - np.cos(theta_rad))
-        
-        # Calculate instantaneous volume - preserve the original index
+
+        # Calculate piston position using CORRECT kinematic formula with connecting rod
+        crank_radius = stroke_f / 2
+        r = rod_to_crank_ratio  # Typical: 3.5 for reciprocating compressors
+
+        cos_theta = np.cos(theta_rad)
+        sin_theta = np.sin(theta_rad)
+
+        # Proper slider-crank kinematics
+        sqrt_term = np.sqrt((1/r)**2 - sin_theta**2)
+        piston_position = crank_radius * (1 + (1/r) - cos_theta - sqrt_term)
+
+        # Calculate instantaneous volume
         instantaneous_volume = clearance_volume + area * piston_position
-        
+
         # Return with the same index as the input crank_angles
         return pd.Series(instantaneous_volume.values, index=crank_angles_series.index)
-        
+
     except (ValueError, TypeError) as e:
         st.warning(f"Volume computation error: {e}")
         return pd.Series([], dtype=float)
-        
+
     except Exception as e:
         st.error(f"Volume computation error: {e}")
         return None
@@ -2118,151 +2125,155 @@ def generate_cylinder_view(_db_client, df, cylinder_config, envelope_view, verti
             
             if V is not None and len(V) > 0:
                 pressure_data = df[pressure_curve]
-                
+
                 if len(V) == len(pressure_data):
                     # Scale volume data to fit nicely on the plot
                     pressure_range = pressure_data.max() - pressure_data.min()
                     volume_range = V.max() - V.min()
-                    
-                    # Scale volume to use about 20% of the pressure range at the top
-                    volume_scaled = ((V - V.min()) / volume_range) * (pressure_range * 0.2) + pressure_data.max() + (pressure_range * 0.05)
-                    
-                    # Add P-V overlay as a line
-                    fig.add_trace(
-                        go.Scatter(
-                            x=df['Crank Angle'],
-                            y=volume_scaled,
-                            mode='lines',
-                            line=dict(color='purple', width=2, dash='dot'),
-                            name='Volume (scaled)',
-                            hovertemplate="<b>Crank Angle:</b> %{x:.1f}°<br>" +
-                                        "<b>Volume:</b> %{customdata:.1f} in³<br>" +
-                                        "<extra></extra>",
-                            customdata=V,
-                            opacity=0.7
-                        ),
-                        secondary_y=False
-                    )
 
-                    try:
-                        # P-V OVERLAY MODE: Find TDC/BDC for crank-angle chart with overlay
-                        if len(V) > 0 and len(pressure_data) > 0 and len(V) == len(pressure_data) and len(df) == len(V):
-                            # Use numpy arrays for safer operations
-                            volume_values = V.values
-                            pressure_values = pressure_data.values
-                            crank_angles = df['Crank Angle'].values
+                    # ADDED: Protect against division by zero
+                    if volume_range < 1e-6:
+                        st.warning("⚠️ Volume range too small - skipping P-V overlay")
+                    else:
+                        # Scale volume to use about 20% of the pressure range at the top
+                        volume_scaled = ((V - V.min()) / volume_range) * (pressure_range * 0.2) + pressure_data.max() + (pressure_range * 0.05)
 
-                            # FIXED: Use PRESSURE-based detection instead of volume-based
-                            # Smooth pressure to avoid noise in peak detection
-                            window_size = min(20, len(pressure_values) // 10)
-                            if window_size > 3:
-                                # Create smoothed pressure using pandas rolling mean
-                                pressure_series = pd.Series(pressure_values)
-                                smoothed_pressure = pressure_series.rolling(window=window_size, center=True, min_periods=1).mean().values
-                            else:
-                                smoothed_pressure = pressure_values
+                        # Add P-V overlay as a line
+                        fig.add_trace(
+                            go.Scatter(
+                                x=df['Crank Angle'],
+                                y=volume_scaled,
+                                mode='lines',
+                                line=dict(color='purple', width=2, dash='dot'),
+                                name='Volume (scaled)',
+                                hovertemplate="<b>Crank Angle:</b> %{x:.1f}°<br>" +
+                                            "<b>Volume:</b> %{customdata:.1f} in³<br>" +
+                                            "<extra></extra>",
+                                customdata=V,
+                                opacity=0.7
+                            ),
+                            secondary_y=False
+                        )
 
-                            # TDC: Find where pressure is maximum (peak compression)
-                            # Filter positions where BOTH crank_angles AND pressure are valid
-                            valid_crank_mask = ~np.isnan(crank_angles)
-                            valid_pressure_mask = ~np.isnan(smoothed_pressure)
-                            valid_mask = valid_crank_mask & valid_pressure_mask  # Both must be valid
+                        try:
+                            # P-V OVERLAY MODE: Find TDC/BDC for crank-angle chart with overlay
+                            if len(V) > 0 and len(pressure_data) > 0 and len(V) == len(pressure_data) and len(df) == len(V):
+                                # Use numpy arrays for safer operations
+                                volume_values = V.values
+                                pressure_values = pressure_data.values
+                                crank_angles = df['Crank Angle'].values
 
-                            if valid_mask.sum() > 0:
-                                valid_indices = np.where(valid_mask)[0]
-                                valid_pressures = smoothed_pressure[valid_mask]
-                                tdc_pos = valid_indices[np.argmax(valid_pressures)]
-                            else:
-                                tdc_pos = 0
+                                # FIXED: Use PRESSURE-based detection instead of volume-based
+                                # Smooth pressure to avoid noise in peak detection
+                                window_size = min(20, len(pressure_values) // 10)
+                                if window_size > 3:
+                                    # Create smoothed pressure using pandas rolling mean
+                                    pressure_series = pd.Series(pressure_values)
+                                    smoothed_pressure = pressure_series.rolling(window=window_size, center=True, min_periods=1).mean().values
+                                else:
+                                    smoothed_pressure = pressure_values
 
-                            # BDC: Find pressure minimum in first 60% of cycle (before peak compression)
-                            search_end = int(len(pressure_values) * 0.6)
-                            if search_end > 0:
-                                search_pressures = smoothed_pressure[:search_end]
-                                search_crank_angles = crank_angles[:search_end]
-                                # Filter where BOTH crank angles AND pressure are valid
-                                search_crank_valid = ~np.isnan(search_crank_angles)
-                                search_pressure_valid = ~np.isnan(search_pressures)
-                                search_valid_mask = search_crank_valid & search_pressure_valid
+                                # TDC: Find where pressure is maximum (peak compression)
+                                # Filter positions where BOTH crank_angles AND pressure are valid
+                                valid_crank_mask = ~np.isnan(crank_angles)
+                                valid_pressure_mask = ~np.isnan(smoothed_pressure)
+                                valid_mask = valid_crank_mask & valid_pressure_mask  # Both must be valid
 
-                                if search_valid_mask.sum() > 0:
-                                    search_valid_indices = np.where(search_valid_mask)[0]
-                                    search_valid_pressures = search_pressures[search_valid_mask]
-                                    bdc_pos = search_valid_indices[np.argmin(search_valid_pressures)]
+                                if valid_mask.sum() > 0:
+                                    valid_indices = np.where(valid_mask)[0]
+                                    valid_pressures = smoothed_pressure[valid_mask]
+                                    tdc_pos = valid_indices[np.argmax(valid_pressures)]
+                                else:
+                                    tdc_pos = 0
+
+                                # BDC: Find pressure minimum in first 60% of cycle (before peak compression)
+                                search_end = int(len(pressure_values) * 0.6)
+                                if search_end > 0:
+                                    search_pressures = smoothed_pressure[:search_end]
+                                    search_crank_angles = crank_angles[:search_end]
+                                    # Filter where BOTH crank angles AND pressure are valid
+                                    search_crank_valid = ~np.isnan(search_crank_angles)
+                                    search_pressure_valid = ~np.isnan(search_pressures)
+                                    search_valid_mask = search_crank_valid & search_pressure_valid
+
+                                    if search_valid_mask.sum() > 0:
+                                        search_valid_indices = np.where(search_valid_mask)[0]
+                                        search_valid_pressures = search_pressures[search_valid_mask]
+                                        bdc_pos = search_valid_indices[np.argmin(search_valid_pressures)]
+                                    else:
+                                        bdc_pos = 0
                                 else:
                                     bdc_pos = 0
+
+                                # Get crank angles and pressures for markers
+                                tdc_crank_angle = crank_angles[tdc_pos]  # X=Crank Angle
+                                bdc_crank_angle = crank_angles[bdc_pos]  # X=Crank Angle
+                                tdc_pressure = pressure_values[tdc_pos]  # Y=Pressure (use original, not smoothed)
+                                bdc_pressure = pressure_values[bdc_pos]  # Y=Pressure (use original, not smoothed)
+                            
+                                # Add TDC marker on crank-angle chart
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[tdc_crank_angle], y=[tdc_pressure],  # X=Crank Angle, Y=Pressure
+                                        mode='markers',
+                                        marker=dict(
+                                            size=12, color='red', symbol='circle',
+                                            line=dict(width=2, color='darkred')
+                                        ),
+                                        name='TDC',
+                                        hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
+                                    ),
+                                    secondary_y=False
+                                )
+
+                                # Add BDC marker on crank-angle chart
+                                fig.add_trace(
+                                    go.Scatter(
+                                        x=[bdc_crank_angle], y=[bdc_pressure],  # X=Crank Angle, Y=Pressure
+                                        mode='markers',
+                                        marker=dict(
+                                            size=12, color='blue', symbol='square',
+                                            line=dict(width=2, color='darkblue')
+                                        ),
+                                        name='BDC',
+                                        hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
+                                    ),
+                                    secondary_y=False
+                                )
+                            
+                                # Add annotations on crank-angle chart
+                                annotation_bg = "rgba(0,0,0,0.8)" if dark_theme else "rgba(255,255,255,0.8)"
+                                fig.add_annotation(
+                                    x=tdc_crank_angle, y=tdc_pressure,
+                                    text="TDC", showarrow=True, arrowhead=2, ax=30, ay=-30,
+                                    bgcolor=annotation_bg, bordercolor="red",
+                                    font=dict(color="red", size=10)
+                                )
+
+                                fig.add_annotation(
+                                    x=bdc_crank_angle, y=bdc_pressure,
+                                    text="BDC", showarrow=True, arrowhead=2, ax=-30, ay=30,
+                                    bgcolor=annotation_bg, bordercolor="blue",
+                                    font=dict(color="blue", size=10)
+                                )
+                            
+                                # Add P-V overlay info box
+                                fig.update_layout(
+                                    annotations=fig.layout.annotations + (dict(
+                                        x=0.02, y=0.98, xref="paper", yref="paper",
+                                        text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%<br>TDC at {tdc_crank_angle:.1f}° | BDC at {bdc_crank_angle:.1f}°",
+                                        showarrow=False, bgcolor="rgba(128,0,128,0.1)",
+                                        bordercolor="purple", borderwidth=1,
+                                        font=dict(size=9), align="left"
+                                    ),)
+                                )
+
+                                st.info(f"✅ P-V overlay active! TDC detected at {tdc_crank_angle:.1f}° (peak pressure), BDC at {bdc_crank_angle:.1f}° (min pressure).")
                             else:
-                                bdc_pos = 0
+                                st.warning("⚠️ Data length mismatch between volume, pressure, and DataFrame")
 
-                            # Get crank angles and pressures for markers
-                            tdc_crank_angle = crank_angles[tdc_pos]  # X=Crank Angle
-                            bdc_crank_angle = crank_angles[bdc_pos]  # X=Crank Angle
-                            tdc_pressure = pressure_values[tdc_pos]  # Y=Pressure (use original, not smoothed)
-                            bdc_pressure = pressure_values[bdc_pos]  # Y=Pressure (use original, not smoothed)
-                            
-                            # Add TDC marker on crank-angle chart
-                            fig.add_trace(
-                                go.Scatter(
-                                    x=[tdc_crank_angle], y=[tdc_pressure],  # X=Crank Angle, Y=Pressure
-                                    mode='markers',
-                                    marker=dict(
-                                        size=12, color='red', symbol='circle',
-                                        line=dict(width=2, color='darkred')
-                                    ),
-                                    name='TDC',
-                                    hovertemplate="<b>TDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
-                                ),
-                                secondary_y=False
-                            )
-
-                            # Add BDC marker on crank-angle chart
-                            fig.add_trace(
-                                go.Scatter(
-                                    x=[bdc_crank_angle], y=[bdc_pressure],  # X=Crank Angle, Y=Pressure
-                                    mode='markers',
-                                    marker=dict(
-                                        size=12, color='blue', symbol='square',
-                                        line=dict(width=2, color='darkblue')
-                                    ),
-                                    name='BDC',
-                                    hovertemplate="<b>BDC</b><br>Angle: %{x:.1f}°<br>Pressure: %{y:.1f} PSIG<extra></extra>"
-                                ),
-                                secondary_y=False
-                            )
-                            
-                            # Add annotations on crank-angle chart
-                            annotation_bg = "rgba(0,0,0,0.8)" if dark_theme else "rgba(255,255,255,0.8)"
-                            fig.add_annotation(
-                                x=tdc_crank_angle, y=tdc_pressure,
-                                text="TDC", showarrow=True, arrowhead=2, ax=30, ay=-30,
-                                bgcolor=annotation_bg, bordercolor="red",
-                                font=dict(color="red", size=10)
-                            )
-
-                            fig.add_annotation(
-                                x=bdc_crank_angle, y=bdc_pressure,
-                                text="BDC", showarrow=True, arrowhead=2, ax=-30, ay=30,
-                                bgcolor=annotation_bg, bordercolor="blue",
-                                font=dict(color="blue", size=10)
-                            )
-                            
-                            # Add P-V overlay info box
-                            fig.update_layout(
-                                annotations=fig.layout.annotations + (dict(
-                                    x=0.02, y=0.98, xref="paper", yref="paper",
-                                    text=f"<b>P-V Overlay Active</b><br>Volume range: {V.min():.1f} - {V.max():.1f} in³<br>Clearance: {clearance_pct}%<br>TDC at {tdc_crank_angle:.1f}° | BDC at {bdc_crank_angle:.1f}°",
-                                    showarrow=False, bgcolor="rgba(128,0,128,0.1)",
-                                    bordercolor="purple", borderwidth=1,
-                                    font=dict(size=9), align="left"
-                                ),)
-                            )
-
-                            st.info(f"✅ P-V overlay active! TDC detected at {tdc_crank_angle:.1f}° (peak pressure), BDC at {bdc_crank_angle:.1f}° (min pressure).")
-                        else:
-                            st.warning("⚠️ Data length mismatch between volume, pressure, and DataFrame")
-                        
-                    except Exception as e:
-                        st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
+                        except Exception as e:
+                            st.warning(f"⚠️ Could not mark TDC/BDC points: {str(e)}")
                         
                 else:
                     st.warning(f"⚠️ P-V overlay failed: Data length mismatch (Volume={len(V)}, Pressure={len(pressure_data)})")
