@@ -205,6 +205,23 @@
     border: 1px solid var(--border-color);
 }
 
+/* Force interactive plots to occupy full width even after reruns */
+.full-width-plot {
+    width: 100%;
+    max-width: 100%;
+    display: block;
+}
+
+.full-width-plot div[data-testid="stPlotlyChart"] {
+    width: 100% !important;
+    min-width: 0 !important;
+}
+
+.full-width-plot div[data-testid="stPlotlyChart"] > div,
+.full-width-plot div[data-testid="Plotly"] {
+    width: 100% !important;
+}
+
 /* Loading spinner */
 .stSpinner {
     border: 4px solid rgba(52, 152, 219, 0.3);
@@ -230,8 +247,3 @@
         padding: 1rem;
         margin: 0.5rem 0;
     }
-    
-    .metric-card {
-        margin: 0.25rem 0;
-    }
-}
