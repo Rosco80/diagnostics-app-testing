@@ -527,6 +527,9 @@ def enhanced_file_upload_section():
             status_text.text("🔍 Parsing WRPM file...")
             progress_bar.progress(25)
 
+            # Increment file uploader key BEFORE parsing to prevent duplicate key errors
+            st.session_state.file_uploader_key += 1
+
             try:
                 from app.core.wrpm_adapter import load_wrpm_file
 
@@ -588,9 +591,6 @@ def enhanced_file_upload_section():
                     'preview_info': preview_info,
                     'needs_rpm': levels_dict.get('rpm') is None
                 }
-
-                # Increment file uploader key to clear the uploaded file from UI
-                st.session_state.file_uploader_key += 1
 
                 st.markdown("---")
                 st.markdown('</div>', unsafe_allow_html=True)
