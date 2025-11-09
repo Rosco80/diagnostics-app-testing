@@ -565,25 +565,6 @@ def enhanced_file_upload_section():
 
                 progress_bar.progress(100)
                 status_text.text("✅ WRPM file parsed successfully!")
-                st.success("✅ WRPM file validated successfully!")
-
-                st.markdown("### 📋 Data Preview")
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    st.markdown(f"""
-                    **🏭 Machine Information:**
-                    - **ID:** {preview_info['machine_id']}
-                    - **Date:** {preview_info['date_time']}
-                    """)
-
-                with col2:
-                    st.markdown(f"""
-                    **📊 Data Summary:**
-                    - **Cylinders:** {preview_info['cylinder_count']}
-                    - **Data Curves:** {preview_info['total_curves']}
-                    - **File Size:** {preview_info['file_sizes']['wrpm']:.1f} KB
-                    """)
 
                 # Store WRPM data in session state for RPM input handling
                 st.session_state['pending_wrpm_data'] = {
@@ -592,9 +573,8 @@ def enhanced_file_upload_section():
                     'needs_rpm': levels_dict.get('rpm') is None
                 }
 
-                st.markdown("---")
-                st.markdown('</div>', unsafe_allow_html=True)
-                st.rerun()  # Rerun to show RPM input section
+                # Immediately rerun - preview will show on next run
+                st.rerun()
 
             except Exception as e:
                 progress_bar.progress(100)
