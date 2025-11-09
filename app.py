@@ -476,6 +476,8 @@ def enhanced_file_upload_section():
                         del st.session_state.validated_files
                     if 'analysis_results' in st.session_state:
                         st.session_state.analysis_results = None
+                    if 'pending_wrpm_data' in st.session_state:
+                        del st.session_state['pending_wrpm_data']
                     st.cache_data.clear()  # Clear Streamlit cache to load fresh data
                     st.rerun()
         
@@ -497,6 +499,8 @@ def enhanced_file_upload_section():
             del st.session_state.validated_files
         if 'analysis_results' in st.session_state:
             st.session_state.analysis_results = None
+        if 'pending_wrpm_data' in st.session_state:
+            del st.session_state['pending_wrpm_data']
         st.cache_data.clear()  # Clear Streamlit cache to load fresh data
         st.rerun()
 
@@ -573,40 +577,16 @@ def enhanced_file_upload_section():
                     - **File Size:** {preview_info['file_sizes']['wrpm']:.1f} KB
                     """)
 
-                # RPM input for WRPM files (since not extracted yet)
-                if levels_dict.get('rpm') is None:
-                    st.warning("⚠️ **RPM not available in WRPM file** - Manual input required")
-                    rpm_input = st.number_input(
-                        "Enter Compressor RPM",
-                        min_value=100,
-                        max_value=2000,
-                        value=479,
-                        help="RPM not found in WRPM file - please input manually",
-                        key="wrpm_rpm_input"
-                    )
-                    levels_dict['rpm'] = rpm_input
-                    source_dict['rpm'] = rpm_input
-                    files_content['levels_dict'] = levels_dict
-                    files_content['source_dict'] = source_dict
-                    preview_info['rpm'] = rpm_input
+                # Store WRPM data in session state for RPM input handling
+                st.session_state['pending_wrpm_data'] = {
+                    'files_content': files_content,
+                    'preview_info': preview_info,
+                    'needs_rpm': levels_dict.get('rpm') is None
+                }
 
                 st.markdown("---")
-                st.success("✅ **Data looks good! Ready to analyze**")
-
-                col1, col2, col3 = st.columns([1, 3, 1])
-                with col2:
-                    if st.button("🚀 Analyse", type="primary", use_container_width=True):
-                        # Clear old analysis results when new files are uploaded
-                        st.session_state.analysis_results = None
-                        st.session_state.active_session_id = None
-                        if 'auto_discover_config' in st.session_state:
-                            del st.session_state['auto_discover_config']
-                        st.session_state.validated_files = files_content
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        return files_content
-
                 st.markdown('</div>', unsafe_allow_html=True)
-                return None
+                # Don't return here - let the RPM handling happen below
 
             except Exception as e:
                 progress_bar.progress(100)
@@ -745,7 +725,7 @@ def enhanced_file_upload_section():
             return None
 
     else:
-        st.info("👆 Please upload your 3 XML files to begin")
+        st.info("👆 Please upload 3 XML files OR 1 WRPM file to begin")
         st.markdown('</div>', unsafe_allow_html=True)
         return None
 
@@ -2941,6 +2921,37 @@ render_main_header()
 with st.sidebar:
     validated_files = enhanced_file_upload_section()
 
+    # Handle pending WRPM data (RPM input and validation)
+    if 'pending_wrpm_data' in st.session_state and st.session_state.pending_wrpm_data:
+        pending_data = st.session_state.pending_wrpm_data
+
+        if pending_data['needs_rpm']:
+            st.warning("⚠️ **RPM not available in WRPM file** - Manual input required")
+            rpm_input = st.number_input(
+                "Enter Compressor RPM",
+                min_value=100,
+                max_value=2000,
+                value=479,
+                help="RPM not found in WRPM file - please input manually",
+                key=f"wrpm_rpm_input_{st.session_state.file_uploader_key}"
+            )
+            # Update the files_content with RPM
+            pending_data['files_content']['levels_dict']['rpm'] = rpm_input
+            pending_data['files_content']['source_dict']['rpm'] = rpm_input
+
+        st.success("✅ **Data looks good! Ready to analyze**")
+
+        col1, col2, col3 = st.columns([1, 3, 1])
+        with col2:
+            if st.button("🚀 Analyse", type="primary", use_container_width=True, key=f"wrpm_analyze_{st.session_state.file_uploader_key}"):
+                # Clear old analysis results and store validated files
+                st.session_state.analysis_results = None
+                st.session_state.active_session_id = None
+                if 'auto_discover_config' in st.session_state:
+                    del st.session_state['auto_discover_config']
+                st.session_state.validated_files = pending_data['files_content']
+                del st.session_state['pending_wrpm_data']  # Clear pending data
+                st.rerun()
 
     if st.session_state.analysis_results is not None:
         if st.button("🔄 Start New Analysis", type="secondary"):
@@ -2948,6 +2959,8 @@ with st.sidebar:
             st.session_state.active_session_id = None
             if 'auto_discover_config' in st.session_state:
                 del st.session_state['auto_discover_config']
+            if 'pending_wrpm_data' in st.session_state:
+                del st.session_state['pending_wrpm_data']
             st.cache_data.clear()  # Clear Streamlit cache to load fresh data
             st.rerun()
 
