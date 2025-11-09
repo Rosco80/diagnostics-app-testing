@@ -434,7 +434,11 @@ def enhanced_file_upload_section():
     Enhanced file upload with validation, preview, and styled UI
     """
     render_section_header("📁 1. Data Upload")
-    
+
+    # Check if we have pending WRPM data (waiting for RPM input)
+    if 'pending_wrpm_data' in st.session_state and st.session_state.pending_wrpm_data:
+        # Don't show file uploader when WRPM data is pending
+        return None
 
     # Check if we already have validated files in session state
     if 'validated_files' in st.session_state and st.session_state.validated_files:
@@ -586,7 +590,7 @@ def enhanced_file_upload_section():
 
                 st.markdown("---")
                 st.markdown('</div>', unsafe_allow_html=True)
-                # Don't return here - let the RPM handling happen below
+                st.rerun()  # Rerun to show RPM input section
 
             except Exception as e:
                 progress_bar.progress(100)
