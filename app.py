@@ -436,8 +436,9 @@ def enhanced_file_upload_section():
     render_section_header("📁 1. Data Upload")
 
     # Check if we have pending WRPM data (waiting for RPM input)
-    if 'pending_wrpm_data' in st.session_state and st.session_state.pending_wrpm_data:
+    if 'pending_wrpm_data' in st.session_state and st.session_state.get('pending_wrpm_data'):
         # Don't show file uploader when WRPM data is pending
+        st.info("✅ WRPM file loaded - please enter RPM below")
         return None
 
     # Check if we already have validated files in session state
@@ -587,6 +588,9 @@ def enhanced_file_upload_section():
                     'preview_info': preview_info,
                     'needs_rpm': levels_dict.get('rpm') is None
                 }
+
+                # Increment file uploader key to clear the uploaded file from UI
+                st.session_state.file_uploader_key += 1
 
                 st.markdown("---")
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -2926,10 +2930,31 @@ with st.sidebar:
     validated_files = enhanced_file_upload_section()
 
     # Handle pending WRPM data (RPM input and validation)
-    if 'pending_wrpm_data' in st.session_state and st.session_state.pending_wrpm_data:
+    if 'pending_wrpm_data' in st.session_state and st.session_state.get('pending_wrpm_data'):
         pending_data = st.session_state.pending_wrpm_data
+        preview_info = pending_data.get('preview_info', {})
 
-        if pending_data['needs_rpm']:
+        # Show preview info
+        st.markdown("### 📋 WRPM Data Preview")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(f"""
+            **🏭 Machine Information:**
+            - **ID:** {preview_info.get('machine_id', 'Unknown')}
+            - **Date:** {preview_info.get('date_time', 'Unknown')}
+            """)
+
+        with col2:
+            st.markdown(f"""
+            **📊 Data Summary:**
+            - **Cylinders:** {preview_info.get('cylinder_count', 0)}
+            - **Data Curves:** {preview_info.get('total_curves', 0)}
+            """)
+
+        st.markdown("---")
+
+        if pending_data.get('needs_rpm', True):
             st.warning("⚠️ **RPM not available in WRPM file** - Manual input required")
             rpm_input = st.number_input(
                 "Enter Compressor RPM",
