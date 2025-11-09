@@ -719,7 +719,7 @@ def enhanced_file_upload_section():
 
             col1, col2, col3 = st.columns([1, 3, 1])
             with col2:
-                if st.button("🚀 Analyse", type="primary", use_container_width=True):
+                if st.button("🚀 Analyse", type="primary", use_container_width=True, key=f"xml_analyze_{st.session_state.file_uploader_key}"):
                     # FIXED: Clear old analysis results when new files are uploaded
                     st.session_state.analysis_results = None
                     st.session_state.active_session_id = None
@@ -2934,24 +2934,8 @@ with st.sidebar:
         pending_data = st.session_state.pending_wrpm_data
         preview_info = pending_data.get('preview_info', {})
 
-        # Show preview info
-        st.markdown("### 📋 WRPM Data Preview")
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.markdown(f"""
-            **🏭 Machine Information:**
-            - **ID:** {preview_info.get('machine_id', 'Unknown')}
-            - **Date:** {preview_info.get('date_time', 'Unknown')}
-            """)
-
-        with col2:
-            st.markdown(f"""
-            **📊 Data Summary:**
-            - **Cylinders:** {preview_info.get('cylinder_count', 0)}
-            - **Data Curves:** {preview_info.get('total_curves', 0)}
-            """)
-
+        # Show compact preview info
+        st.info(f"📋 **WRPM File Loaded:** {preview_info.get('machine_id', 'Unknown')} | {preview_info.get('cylinder_count', 0)} cylinders | {preview_info.get('total_curves', 0)} curves")
         st.markdown("---")
 
         if pending_data.get('needs_rpm', True):
@@ -3276,29 +3260,29 @@ if validated_files:
             cylinder_names = [c.get("cylinder_name") for c in cylinders]
             
             # Rest of your existing code stays the same...
-            with st.sidebar:
-                selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
+            # Note: Already inside st.sidebar context from line 2929
+            selected_cylinder_name, selected_cylinder_config = render_cylinder_selection_sidebar(discovered_config)
 
-                # Signal Validation Status - moved here to use the correct selected cylinder
-                if pressure_options['enable_pressure'] and selected_cylinder_config:
-                    st.sidebar.markdown("---")
-                    st.sidebar.markdown("### 📊 Signal Validation Status")
-                    st.sidebar.markdown("*Signal quality indicators*")
+            # Signal Validation Status - moved here to use the correct selected cylinder
+            if pressure_options['enable_pressure'] and selected_cylinder_config:
+                st.markdown("---")
+                st.markdown("### 📊 Signal Validation Status")
+                st.markdown("*Signal quality indicators*")
 
-                    st.sidebar.write(f"🔧 Validating signals for: {selected_cylinder_config.get('cylinder_name', 'Unknown')}")
+                st.write(f"🔧 Validating signals for: {selected_cylinder_config.get('cylinder_name', 'Unknown')}")
 
-                    # Run signal validation
-                    validation_status = validate_pressure_signals(df, selected_cylinder_config, pressure_options)
+                # Run signal validation
+                validation_status = validate_pressure_signals(df, selected_cylinder_config, pressure_options)
 
-                    # Display validation results in a clean format
-                    if validation_status:
-                        for signal_name, status in validation_status.items():
-                            if status == "✅":
-                                st.sidebar.success(f"{status} {signal_name}")
-                            else:
-                                st.sidebar.error(f"{status} {signal_name}")
-                    else:
-                        st.sidebar.info("No pressure signals selected for validation")
+                # Display validation results in a clean format
+                if validation_status:
+                    for signal_name, status in validation_status.items():
+                        if status == "✅":
+                            st.success(f"{status} {signal_name}")
+                        else:
+                            st.error(f"{status} {signal_name}")
+                else:
+                    st.info("No pressure signals selected for validation")
 
 
             if selected_cylinder_config:
